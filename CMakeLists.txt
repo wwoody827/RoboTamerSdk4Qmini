@@ -84,7 +84,7 @@ include_directories(${EIGENS_INCLUDE_DIR})
 include_directories(/usr/include/jsoncpp)
 include_directories(/usr/local/include/ddscxx /usr/local/include/iceoryx/v2.0.2)
 #include_directories(/usr/local/include)
-include_directories(/usr/include/python3.12/)
+include_directories(/usr/include/python3.13/)
 
 
 FIND_PACKAGE(yaml-cpp REQUIRED)

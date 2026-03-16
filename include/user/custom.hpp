@@ -80,7 +80,7 @@ public:
         usleep(0.1 * 1e6);
 
         ///command_writer 0.002s
-        PyEval_ReleaseLock();
+        PyEval_SaveThread();
         imu_thread_ptr_ = CreateRecurrentThreadEx("imu", UT_CPU_ID_NONE, 0.003 * 1e6,
                                                   &G1::IMUStateReader, this);
         usleep(0.1 * 1e6);

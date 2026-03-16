@@ -12,7 +12,6 @@ class IMUReader {
 public:
     IMUReader() {
         Py_Initialize();
-        PyEval_InitThreads();
         PyRun_SimpleString("import sys; sys.path.append('.')");
     }
 

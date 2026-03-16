@@ -17,7 +17,6 @@ class JoystickReader {
 public:
     JoystickReader() {
         Py_Initialize();
-        PyEval_InitThreads();
         PyRun_SimpleString("import sys; sys.path.append('.')");
     }
 

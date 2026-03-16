@@ -1,0 +1,22 @@
+# Build output
+build/
+
+# Compiled binaries
+bin/run_interface
+bin/test_interface
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Logs
+bin/general.txt
+bin/rl.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
