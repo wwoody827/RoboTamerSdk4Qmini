@@ -29,13 +29,20 @@ class JoyStick:
     def initjoystick(self):
         pygame.init()
         pygame.joystick.init()
+        if pygame.joystick.get_count() == 0:
+            print("[INFO] No joystick connected, running without joystick.")
+            self.joystick = None
+            return
         self.joystick = pygame.joystick.Joystick(0)
         self.joystick.init()
 
     def getjoystickstates(self):
-        self.joystick = pygame.joystick.Joystick(0)
-        self.joystick.init()
-        
+        if pygame.joystick.get_count() == 0:
+            return
+        if self.joystick is None:
+            self.joystick = pygame.joystick.Joystick(0)
+            self.joystick.init()
+
         for event in pygame.event.get():  # User did something
             if event.type == pygame.JOYAXISMOTION:
                 self.LaxiX = self.joystick.get_axis(0)
