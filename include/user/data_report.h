@@ -11,6 +11,10 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <sstream>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "utils/cpp_types.h"
 #include "rl_controller.h"
 
@@ -27,7 +31,7 @@ public:
     Vec10<float> joint_pos, joint_vel, joint_act;
     Vec3<float> base_rpy, base_rpy_rate, base_vel;
 
-    void init(bool general, bool rl) {
+    void init(bool general, bool rl, const char* udp_broadcast_ip = "255.255.255.255", int udp_port = 9870) {
         if (general) {
             if (general_fp == nullptr) {
                 general_fp = fopen(general_file, "w");
@@ -46,6 +50,19 @@ public:
                 }
             }
         }
+        // UDP broadcast socket
+        udp_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_sock_ >= 0) {
+            int broadcast = 1;
+            setsockopt(udp_sock_, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+            memset(&udp_addr_, 0, sizeof(udp_addr_));
+            udp_addr_.sin_family      = AF_INET;
+            udp_addr_.sin_port        = htons(udp_port);
+            udp_addr_.sin_addr.s_addr = inet_addr(udp_broadcast_ip);
+            cout << "UDP broadcast initialized → " << udp_broadcast_ip << ":" << udp_port << endl;
+        } else {
+            cout << "Warning: failed to create UDP socket." << endl;
+        }
         report_data_title();
     }
 
@@ -61,6 +78,10 @@ public:
                 cout << fclose(rl_fp) << endl;
             }
             rl_fp = nullptr;
+        }
+        if (udp_sock_ >= 0) {
+            ::close(udp_sock_);
+            udp_sock_ = -1;
         }
     }
 
@@ -78,6 +99,21 @@ public:
                 fprintf(rl_fp, "%lf\t", i);
             fprintf(rl_fp, "\n");
         }
+        // UDP broadcast at ~20Hz (every 5 calls at 100Hz)
+        if (udp_sock_ >= 0 && !_general_buffer.empty()) {
+            udp_counter_++;
+            if (udp_counter_ >= 5) {
+                udp_counter_ = 0;
+                std::ostringstream oss;
+                for (size_t i = 0; i < _general_buffer.size(); ++i) {
+                    if (i > 0) oss << ',';
+                    oss << _general_buffer[i];
+                }
+                std::string msg = oss.str();
+                sendto(udp_sock_, msg.c_str(), msg.size(), 0,
+                       (struct sockaddr*)&udp_addr_, sizeof(udp_addr_));
+            }
+        }
     }
 
 private:
@@ -90,6 +126,10 @@ private:
 
     std::vector<float> _general_buffer;
     std::vector<float> _rl_buffer;
+
+    int udp_sock_    = -1;
+    int udp_counter_ = 0;
+    struct sockaddr_in udp_addr_{};
 
     const string LEG_NAMES[2] = {"l", "r"};
 
