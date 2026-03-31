@@ -66,9 +66,7 @@ void G1::Control() {
 
 void G1::ReportData() {
     if (current_mode >= '1' and current_mode != 'q') {
-         if (rlController->counter_rl >= 2) {
-            dataReporter.report_data(rlController);
-         }
+        dataReporter.report_data(rlController);
     }
 }
 
