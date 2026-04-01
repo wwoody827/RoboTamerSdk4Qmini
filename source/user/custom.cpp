@@ -80,7 +80,7 @@ void G1::RecordMotorState(const std::array<MotorData, 10> &data) {
         ms_tmp.q.at(i) = data[i].q;
         ms_tmp.dq.at(i) = data[i].dq;
         ms_tmp.ddq.at(i) = 0.;
-        ms_tmp.tau_est.at(i) = 0.;
+        ms_tmp.tau_est.at(i) = data[i].tau;
     }
     motor_state_buffer_.SetData(ms_tmp);
 //    std::cout << "q: " << ms_tmp.q.at(0)<<endl;

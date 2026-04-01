@@ -82,7 +82,7 @@ public:
     /// Startq（0位偏移）： 左腿roll 内扣，则需增大，右腿内扣则需减小
     //std::array<float, 10> Startq ={0.65,  0.45 , 1.28,   0.86,  0.56,
     //                               0.8, 0.,  0.301131,  0.513495,  0.2};
-    std::array<float, 10> Startq = {0.58, 0.08, 0.16, 0.55, 0.88, 0.80, 0.20, 0.68, 0.07, 0.25};
+    std::array<float, 10> Startq = {0.59, 0.08, 0.15, 0.55, 0.89, 0.79, 0.01, 0.68, 0.07, 0.24};
 
     std::array<MotorData, 10> allMotorData;
     float Speed_Ratio = 6.33;
@@ -186,6 +186,7 @@ public:
         
         allMotorData.at(motorID).q = data.q / ratio - Startq[motorID];
         allMotorData.at(motorID).dq = data.dq / ratio;
+        allMotorData.at(motorID).tau = data.tau / ratio;
     }
 
     const std::array<MotorData, 10> &GetData() const {

@@ -229,39 +229,17 @@ private:
         std::vector<float> temp(0, 0.);
         _data_report_mutex.lock();
         temp.clear();
-        /// todo general data
-        if (general_fp) {
-            //q_des
-            for (int i = 0; i < ACT_JOINTS_NUM; ++i) {
-                temp.push_back(rlController->joint_act(i));
-            }
-
-            //q
-            for (int i = 0; i < ACT_JOINTS_NUM; ++i) {
-                temp.push_back(rlController->joint_pos(i));
-            }
-            //dq
-            for (int i = 0; i < ACT_JOINTS_NUM; ++i) {
-                temp.push_back(rlController->joint_vel(i));
-            }
-            //tau_est
-            for (int i = 0; i < ACT_JOINTS_NUM; ++i) {
-                temp.push_back(rlController->joint_tau(i));
-            }
-
-
-            //rpy
-            for (float i: rlController->base_rpy)temp.push_back(i);
-            //rpy rate
-            for (float i: rlController->base_rpy_rate)temp.push_back(i);
-            //base acc
-            for (float i: rlController->base_acc)temp.push_back(i);
-            //base quat
-            for (float i: rlController->base_quat)temp.push_back(i);
-            _general_buffer = temp;
-            temp.clear();
-
-        }
+        /// general data — always populate for UDP even if file logging is off
+        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_act(i));
+        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_pos(i));
+        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_vel(i));
+        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_tau(i));
+        for (float i: rlController->base_rpy)      temp.push_back(i);
+        for (float i: rlController->base_rpy_rate) temp.push_back(i);
+        for (float i: rlController->base_acc)      temp.push_back(i);
+        for (float i: rlController->base_quat)     temp.push_back(i);
+        _general_buffer = temp;
+        temp.clear();
         /// todo rl data
         if (rl_fp) {
             for (float i: rlController->action_increment)
