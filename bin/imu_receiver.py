@@ -164,18 +164,13 @@ def read_imu_data(port="/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Br
             # result["qy"]=AHRS_DATA[8]
             # result["qz"]=AHRS_DATA[9]
 
-            #改位置
-            result["RollSpeed"]= AHRS_DATA[1]
-            result["PitchSpeed"]=AHRS_DATA[0] * -1
+            result["RollSpeed"]= AHRS_DATA[0]
+            result["PitchSpeed"]=AHRS_DATA[1]
             result["HeadingSpeed"]=AHRS_DATA[2]
 
-            r = AHRS_DATA[4]
-            p = AHRS_DATA[3] * -1
-            h = AHRS_DATA[5]
-
-            result["Roll"]=r
-            result["Pitch"]=p
-            result["Heading"]=h
+            result["Roll"]=AHRS_DATA[3]
+            result["Pitch"]=AHRS_DATA[4]
+            result["Heading"]=AHRS_DATA[5]
 
             # r = r * PI / 180
             # p = p * PI / 180
