@@ -82,7 +82,9 @@ public:
     /// Startq（0位偏移）： 左腿roll 内扣，则需增大，右腿内扣则需减小
     //std::array<float, 10> Startq ={0.65,  0.45 , 1.28,   0.86,  0.56,
     //                               0.8, 0.,  0.301131,  0.513495,  0.2};
-    std::array<float, 10> Startq = {0.88, 0.05, 0.16, 0.55, 0.88, 0.49, 0.03, 0.68, 0.07, 0.24};
+    //             idx:    0     1      2     3     4     5     6      7     8     9
+    //             joint:  HYL   HRL    HPL   KL    AL    HYR   HRR    HPR   KR    AR
+    std::array<float, 10> Startq = {0.88, 0.085, 0.16, 0.55, 0.88, 0.49, 0.266, 0.68, 0.07, 0.24};
 
     std::array<MotorData, 10> allMotorData;
     float Speed_Ratio = 6.33;
