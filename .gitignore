@@ -20,3 +20,6 @@ bin/rl.txt
 __pycache__/
 *.pyc
 *.pyo
+
+# Claude Code
+.claude/
