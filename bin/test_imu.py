@@ -3,7 +3,7 @@ sys.path.insert(0, '.')
 from imu_receiver import read_imu_data
 
 PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
-TRANS_AXIS = (-1, 1, -1)  # matches C++ trans_axis
+TRANS_AXIS = (1, 1, 1)  # correction applied in imu_receiver.py
 
 def clear():
     print("\033[2J\033[H", end="")

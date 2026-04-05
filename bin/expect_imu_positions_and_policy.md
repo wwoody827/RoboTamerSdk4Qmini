@@ -3,8 +3,9 @@
 ## Overview
 
 The RL policy was trained in Isaac Gym using a specific coordinate frame convention.
-The physical IMU must be mounted and configured so that its output matches this convention,
-or the mismatch must be corrected in software via `trans_axis` in `rl_controller.cpp`.
+The physical IMU must be mounted and configured so that its output matches this convention.
+The mismatch is corrected in **`bin/imu_receiver.py`** at the data source level,
+so the rest of the codebase (including `rl_controller.cpp`) receives already-corrected values.
 
 ---
 
@@ -89,43 +90,52 @@ Because Y and Z are both flipped, the Euler angles are affected:
 
 ---
 
-## Software Correction: `trans_axis`
+## Software Correction: `bin/imu_receiver.py`
 
-In `source/user/rl_controller.cpp`, `convert_dds_state2rl_state()`:
+The axis correction is applied at the IMU data source in `bin/imu_receiver.py`,
+inside the AHRS parsing block:
 
-```cpp
-Vec3<float> trans_axis(-1., 1, -1);
+```python
+# Axis correction: IMU uses NED (x-forward, y-right, z-down),
+# policy expects ENU-like (x-forward, y-left, z-up).
+# Y and Z are flipped → negate Roll and Heading; Pitch is unchanged.
+result["RollSpeed"]    = AHRS_DATA[0] * -1   # Y-axis flipped
+result["PitchSpeed"]   = AHRS_DATA[1]         # X-axis matches, no change
+result["HeadingSpeed"] = AHRS_DATA[2] * -1    # Z-axis flipped
+
+result["Roll"]    = AHRS_DATA[3] * -1         # Y-axis flipped
+result["Pitch"]   = AHRS_DATA[4]              # X-axis matches, no change
+result["Heading"] = AHRS_DATA[5] * -1         # Z-axis flipped
 ```
 
-Applied to every RPY component and angular rate:
-```cpp
-base_rpy(i)      = imu_rpy(i)      * trans_axis(i)
-base_rpy_rate(i) = imu_rpy_rate(i) * trans_axis(i)
-```
+| Field        | Multiplier | Reason                        |
+|--------------|------------|-------------------------------|
+| Roll         | -1         | IMU Y-axis is right, not left |
+| Pitch        | +1         | IMU X-axis matches            |
+| Heading      | -1         | IMU Z-axis is down, not up    |
+| RollSpeed    | -1         | same as Roll                  |
+| PitchSpeed   | +1         | same as Pitch                 |
+| HeadingSpeed | -1         | same as Heading               |
 
-| Component    | trans_axis | Reason                          |
-|--------------|------------|---------------------------------|
-| Roll  (i=0)  | -1         | IMU Y-axis is right, not left   |
-| Pitch (i=1)  | +1         | IMU X-axis matches              |
-| Heading (i=2)| -1         | IMU Z-axis is down, not up      |
+`rl_controller.cpp` uses `trans_axis(1, 1, 1)` — no further correction needed there.
 
 ---
 
 ## Physical Mounting Requirements
 
-For `trans_axis(-1, 1, -1)` to be correct, mount the IMU as follows:
+For this correction to be correct, mount the IMU as follows:
 
 - **X-axis arrow on PCB** points toward the **robot's nose (forward)**
 - **Z-axis** points **downward** into the robot body (board face-down, or sensor chip facing down)
 - **Y-axis** points to the **robot's right**
 
-If your IMU is mounted differently, adjust `trans_axis` accordingly:
+If your IMU is mounted differently, adjust the multipliers in `bin/imu_receiver.py`:
 
-| Mounting change         | Required trans_axis adjustment |
-|-------------------------|-------------------------------|
-| X pointing backward     | flip index 0 and 1 (swap roll/pitch, negate) |
-| Y pointing left (not right) | change index 0 from -1 to +1 |
-| Z pointing up (not down) | change index 2 from -1 to +1 |
+| Mounting change              | Adjustment in imu_receiver.py             |
+|------------------------------|-------------------------------------------|
+| Y pointing left (not right)  | change Roll/RollSpeed multiplier to +1    |
+| Z pointing up (not down)     | change Heading/HeadingSpeed multiplier to +1 |
+| X pointing backward          | swap Roll↔Pitch indices and negate        |
 
 ---
 
@@ -150,43 +160,43 @@ Perform each physical tilt and check the **POLICY sees** row:
 
 #### 1. Pitch — tilt forward (nose down)
 - **Expected**: Policy Pitch → **negative**
-- If positive: negate index 1 in `trans_axis`
+- If positive: negate index 1 in `imu_receiver.py`
 
 #### 2. Pitch — tilt backward (nose up)
 - **Expected**: Policy Pitch → **positive**
 
 #### 3. Roll — tilt left (left side down)
 - **Expected**: Policy Roll → **positive**
-- If negative: negate index 0 in `trans_axis`
+- If negative: negate Roll multiplier in `imu_receiver.py`
 
 #### 4. Roll — tilt right (right side down)
 - **Expected**: Policy Roll → **negative**
 
 #### 5. Heading — rotate counter-clockwise (viewed from above)
 - **Expected**: Policy Heading → **increasing (positive direction)**
-- If decreasing: negate index 2 in `trans_axis`
+- If decreasing: negate Heading multiplier in `imu_receiver.py`
 
 #### 6. Stationary check
 - All rates (RollSpeed, PitchSpeed, YawSpeed) should be near **0**
 - `|g|` should be close to **9.81 m/s²**
 - Roll and Pitch should be near **0** if the robot is on flat ground
 
-### Fixing trans_axis
+### Fixing the correction
 
-If any test fails, edit `source/user/rl_controller.cpp`:
-```cpp
-Vec3<float> trans_axis(-1., 1, -1);  // (roll, pitch, heading)
-```
-
-And update `bin/test_imu.py` to match:
+If any test fails, edit the multipliers in `bin/imu_receiver.py`:
 ```python
-TRANS_AXIS = (-1, 1, -1)  # matches C++ trans_axis
+result["Roll"]    = AHRS_DATA[3] * -1   # change -1 to +1 if roll sign is wrong
+result["Pitch"]   = AHRS_DATA[4]        # change to * -1 if pitch sign is wrong
+result["Heading"] = AHRS_DATA[5] * -1   # change -1 to +1 if heading sign is wrong
+# same for RollSpeed, PitchSpeed, HeadingSpeed
 ```
 
-Then rebuild:
-```bash
-cd /home/woody/code/RoboTamerSdk4Qmini/build && make -j$(nproc)
+Also update `TRANS_AXIS` in `bin/test_imu.py` to match so the test reflects reality:
+```python
+TRANS_AXIS = (1, 1, 1)  # correction applied in imu_receiver.py
 ```
+
+No rebuild needed — changes are in Python only.
 
 ---
 
@@ -197,7 +207,7 @@ cd /home/woody/code/RoboTamerSdk4Qmini/build && make -j$(nproc)
 | IMU model | CP2102 (Silicon Labs USB-UART bridge) |
 | IMU convention | NED (x-forward, y-right, z-down) |
 | Isaac Gym convention | x-forward, y-left, z-up |
-| Software correction | `trans_axis(-1, 1, -1)` |
+| Software correction | `imu_receiver.py` (Roll×-1, Pitch×+1, Heading×-1) |
 | Serial port | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` |
 | Baud rate | 921600 |
 | Policy uses | Roll, Pitch only (scaled ×5) |
