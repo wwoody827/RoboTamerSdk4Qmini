@@ -164,16 +164,13 @@ def read_imu_data(port="/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Br
             # result["qy"]=AHRS_DATA[8]
             # result["qz"]=AHRS_DATA[9]
 
-            # Axis correction: IMU uses NED (x-forward, y-right, z-down),
-            # policy expects ENU-like (x-forward, y-left, z-up).
-            # Y and Z are flipped → negate Roll and Heading; Pitch is unchanged.
-            result["RollSpeed"]= AHRS_DATA[0] * -1   # Y-axis flipped
-            result["PitchSpeed"]=AHRS_DATA[1]         # X-axis matches, no change
-            result["HeadingSpeed"]=AHRS_DATA[2] * -1  # Z-axis flipped
+            result["RollSpeed"]= AHRS_DATA[0]
+            result["PitchSpeed"]=AHRS_DATA[1]
+            result["HeadingSpeed"]=AHRS_DATA[2]
 
-            result["Roll"]=AHRS_DATA[3] * -1          # Y-axis flipped
-            result["Pitch"]=AHRS_DATA[4]              # X-axis matches, no change
-            result["Heading"]=AHRS_DATA[5] * -1       # Z-axis flipped
+            result["Roll"]=AHRS_DATA[3]
+            result["Pitch"]=AHRS_DATA[4]
+            result["Heading"]=AHRS_DATA[5]
 
             # r = r * PI / 180
             # p = p * PI / 180

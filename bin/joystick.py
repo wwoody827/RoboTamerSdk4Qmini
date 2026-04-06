@@ -2,6 +2,10 @@ import pygame
 import struct
 import time
 import json
+import os
+
+os.environ['SDL_VIDEODRIVER'] = 'dummy'
+os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
 class JoyStick:
     #按键定义

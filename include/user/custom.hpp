@@ -113,7 +113,7 @@ public:
 
 public:
     char current_mode = '1';
-    char selected_mode = '2';
+    char selected_mode = '1';
 
     ModeSwitcher modeSwitcher; // NOTE! There is no WirelessController_.hpp in robot type 'hg'. This is for go2.
     DataReporter dataReporter;

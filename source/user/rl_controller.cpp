@@ -181,7 +181,7 @@ void RLController::set_rl_joint_act2dds_motor_command(char mode) {
 }
 
 void RLController::convert_dds_state2rl_state() {
-    Vec3<float> trans_axis(1., 1, 1);
+    Vec3<float> trans_axis(-1., 1, -1);
     if (dds_motor_state->GetData()) {
         for (int i = 0; i < NUM_JOINTS; ++i) {
             joint_pos[jointIndex2Sim[i]] = exp_filter(joint_pos[jointIndex2Sim[i]], dds_motor_state->GetData()->q[i], 0.2);
