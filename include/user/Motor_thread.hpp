@@ -84,7 +84,7 @@ public:
     //                               0.8, 0.,  0.301131,  0.513495,  0.2};
     //             idx:    0     1      2     3     4     5     6      7     8     9
     //             joint:  HYL   HRL    HPL   KL    AL    HYR   HRR    HPR   KR    AR
-    std::array<float, 10> Startq = {0.88, 0.085, 0.16, 0.55, 0.88, 0.49, 0.266, 0.68, 0.07, 0.24};
+    std::array<float, 10> Startq = {0.88, 0.085, 0.16, 0.55, 0.88, 0.49, 0.037, 0.68, 0.07, 0.24};
 
     std::array<MotorData, 10> allMotorData;
     float Speed_Ratio = 6.33;
