@@ -22,9 +22,9 @@ class MotorController {
 public:
     std::vector<SerialGroup> serialGroups = {
         {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if03-port0", {0,5}},
-        {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if01-port0", {1,6}},
+        {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if02-port0", {1,6}},
         {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if00-port0", {2, 3, 4}},
-        {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if02-port0", {7, 8, 9}}
+        {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if01-port0", {7, 8, 9}}
     };
     MotorController() {
         InitializeSerialPorts();
