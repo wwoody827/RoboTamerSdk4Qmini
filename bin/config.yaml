@@ -1,7 +1,7 @@
 #User config params
 #obs and act spaces
 num_actions: 12
-num_observations: 43
+num_observations: 44
 num_stacks: 3
 
 control_dt: 0.015
