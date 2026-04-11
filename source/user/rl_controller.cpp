@@ -95,7 +95,7 @@ Matrix<float, Dynamic, 1> RLController::get_observation() {
         pm_phase_sin_cos(NUM_LEGS + i) = cos(_pm_phase[i]);
     }
     joystick_command_process();
-    if (sqrt(pow(target_command(0), 2) + pow(target_command(1), 2)) < 0.15)
+    if (sqrt(pow(target_command(0), 2) + pow(target_command(1), 2) + pow(target_command(2), 2)) < 0.15)
         static_flag = 0.f;
     else
         static_flag = 1.f;
@@ -138,14 +138,15 @@ Matrix<float, Dynamic, 1> RLController::get_observation() {
 
 
 void RLController::joystick_command_process() {
-    float vx_cmd = 0,  yr_cmd = 0;
+    float vx_cmd = 0, vy_cmd = 0, yr_cmd = 0;
     auto yr_max = configParams.yr_cmd_range.at(1);
     auto vx_min = configParams.vx_cmd_range.at(0);
     auto vx_max = configParams.vx_cmd_range.at(1);
     if (task_mode == 3 or task_mode == 4) {
         ///stand
-        vx_cmd = -vx_max * jsreader->Axis[1];
-        yr_cmd = -yr_max * jsreader->Axis[2];
+        vx_cmd = -vx_max * jsreader->Axis[1];  // left stick Y → forward/back
+        vy_cmd = -vx_max * jsreader->Axis[0];  // left stick X → left/right
+        yr_cmd = -yr_max * jsreader->Axis[2];  // right stick X → yaw
 
         if (fabs(yr_cmd) > 0.1 or configParams.kp_yaw_ctrl < 1e-2 or static_flag < 0.1) {
             _record_yaw = base_rpy[2];//todo
@@ -155,8 +156,9 @@ void RLController::joystick_command_process() {
 
         yr_cmd = std::clamp(yr_cmd, -yr_max, yr_max);
         vx_cmd = std::clamp(vx_cmd, vx_min, vx_max);
+        vy_cmd = std::clamp(vy_cmd, vx_min, vx_max);
     }
-    target_command << vx_cmd, yr_cmd;
+    target_command << vx_cmd, vy_cmd, yr_cmd;
 }
 
 void RLController::set_rl_joint_act2dds_motor_command(char mode) {

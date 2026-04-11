@@ -33,7 +33,7 @@ public:
     static const int NUM_JOINTS = 10;
     static const int NUM_ACTUAT_JOINTS = 10;
 
-    Vec2<float> target_command;
+    Vec3<float> target_command;
     Vec2<float> pm_f;
     Vec4<float> pm_phase_sin_cos;
     Vec3<float> base_rpy, base_rpy_rate, base_vel, base_acc;
