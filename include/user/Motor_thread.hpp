@@ -111,15 +111,19 @@ public:
            {
             std::chrono::time_point<std::chrono::high_resolution_clock> start = std::chrono::high_resolution_clock::now();
             
-            for(std::vector<int>::iterator motorID = serialGroups[N].motorIDs.begin(); 
+            for(std::vector<int>::iterator motorID = serialGroups[N].motorIDs.begin();
                 motorID != serialGroups[N].motorIDs.end(); ++motorID) {
                 MotorCmd cmd;
                 MotorData data;
-                
+
                 ConfigureMotorCommand(cmd, *motorID, current_cmd_);
                 data.motorType = MotorType::GO_M8010_6;
-                serial.sendRecv(&cmd, &data);
-                ParseMotorFeedback(data, *motorID);
+                try {
+                    serial.sendRecv(&cmd, &data);
+                    ParseMotorFeedback(data, *motorID);
+                } catch (const std::exception& e) {
+                    std::cerr << "[Motor" << *motorID << "] serial error: " << e.what() << std::endl;
+                }
             }
             td.count++;
           }
