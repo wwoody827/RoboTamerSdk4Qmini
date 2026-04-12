@@ -12,6 +12,7 @@
 #include "unitreeMotor/unitreeMotor.h"
 #include <fstream>
 #include <iomanip>
+#include <yaml-cpp/yaml.h>
 
 struct SerialGroup {
     const char *port;
@@ -27,6 +28,9 @@ public:
         {"/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB09QAL-if01-port0", {7, 8, 9}}
     };
     MotorController() {
+        YAML::Node params = YAML::LoadFile("config.yaml");
+        auto sq = params["startq"].as<std::vector<float>>();
+        for (int i = 0; i < 10; i++) Startq[i] = sq[i];
         InitializeSerialPorts();
         for(std::array<ThreadData, 4>::iterator td = threadData.begin(); td != threadData.end(); ++td) {
             td->start_time = std::chrono::high_resolution_clock::now();
@@ -79,12 +83,9 @@ public:
     }
 
 public:
-    /// Startq（0位偏移）： 左腿roll 内扣，则需增大，右腿内扣则需减小
-    //std::array<float, 10> Startq ={0.65,  0.45 , 1.28,   0.86,  0.56,
-    //                               0.8, 0.,  0.301131,  0.513495,  0.2};
     //             idx:    0     1      2     3     4     5     6      7     8     9
     //             joint:  HYL   HRL    HPL   KL    AL    HYR   HRR    HPR   KR    AR
-    std::array<float, 10> Startq = {0.88, 0.085, 0.16, 0.55, 0.88, 0.49, 0.037, 0.68, 0.07, 0.24};
+    std::array<float, 10> Startq = {}; // loaded from config.yaml startq at runtime
 
     std::array<MotorData, 10> allMotorData;
     float Speed_Ratio = 6.33;

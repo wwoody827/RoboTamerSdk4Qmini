@@ -1,4 +1,10 @@
 #User config params
+
+#motor zero offsets (applied as: q = raw/ratio - startq[i])
+#             idx:  0      1      2     3     4      5      6      7     8     9
+#             joint: HYL   HRL    HPL   KL    AL     HYR    HRR    HPR   KR    AR
+startq: [0.88, 0.085, 0.16, 0.55, 0.88, 0.49, 0.037, 0.68, 0.07, 0.24]
+
 #obs and act spaces
 num_actions: 12
 num_observations: 44
