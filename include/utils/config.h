@@ -41,6 +41,10 @@ public:
         act_pos_low = params["act_pos_low"].as < std::vector < float > > ();
 
         ref_joint_act = params["ref_joint_act"].as < std::vector < float > > ();
+
+        if (params["startq"]) {
+            startq = params["startq"].as<std::vector<float>>();
+        }
     }
 
 public:
@@ -71,6 +75,8 @@ public:
 
     std::vector<float> ref_joint_act = {0.};
 
+    // Per-joint zero offsets. Only used by the hardware motor backend.
+    std::vector<float> startq = {0.,0.,0.,0.,0., 0.,0.,0.,0.,0.};
 };
 
 #endif

@@ -12,6 +12,12 @@ QminiApp::QminiApp(Options opts)
     // ConfigParams loads from "config.yaml" in CWD.
     control_dt_ = cfg_.control_dt;
 
+    // Carry startq into hardware config so the motor backend doesn't need
+    // its own YAML load. (Sim backend ignores startq.)
+    for (size_t i = 0; i < cfg_.startq.size() && i < 10; ++i) {
+        opts_.hw.startq[i] = cfg_.startq[i];
+    }
+
     motor_    = hal::make_motor_backend(opts_.hw);
     imu_      = hal::make_imu_backend(opts_.hw);
     joystick_ = hal::make_joystick_backend(opts_.hw);

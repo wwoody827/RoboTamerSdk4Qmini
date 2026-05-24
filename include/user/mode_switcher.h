@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdio>
+#include <poll.h>
+#include <unistd.h>
 
 #include "user/hal/types.h"
 
@@ -49,13 +52,18 @@ public:
     }
 
     char read_from_keyboard(char mode) {
+        // Non-blocking poll on stdin. Only print the prompt on mode change.
+        if (mode != last_prompted_mode_) {
+            std::printf("Current mode: %c  Press a digit 1-9 or 'q': ", mode);
+            std::fflush(stdout);
+            last_prompted_mode_ = mode;
+        }
+        struct pollfd p{0, POLLIN, 0};
+        if (::poll(&p, 1, 0) <= 0 || !(p.revents & POLLIN)) return mode;
         char key = '0';
-        std::printf("Current mode: %c  Please input a mode: ", mode);
-        std::fflush(stdout);
         int c = std::getchar();
         if (c == EOF) return mode;
         key = static_cast<char>(c);
-        // drain rest of line
         while (c != '\n' && c != EOF) c = std::getchar();
         if (key == 'q' && mode == '1') return key;
         if (key >= '1' && key <= '9') {
@@ -76,6 +84,10 @@ public:
         }
         return mode;
     }
+
+private:
+    char last_prompted_mode_ = '\0';
+public:
 
     static void print_selected_mode(char mode) {
         switch (mode) {
