@@ -1,256 +1,45 @@
-#ifndef DATA_REPORT_H
-#define DATA_REPORT_H
+#pragma once
 
-#include <sys/time.h>
-#include <mutex>
-#include <iostream>
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <unistd.h>
-#include <cstring>
-#include <fstream>
-#include <string>
-#include <sstream>
-#include <sys/socket.h>
+#include <mutex>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include "utils/cpp_types.h"
-#include "rl_controller.h"
+#include <string>
+#include <vector>
 
-using namespace std;
+namespace qmini {
 
+class RLController;
 
 class DataReporter {
 public:
     DataReporter() = default;
+    ~DataReporter();
 
-    virtual ~DataReporter() = default;
+    DataReporter(const DataReporter&) = delete;
+    DataReporter& operator=(const DataReporter&) = delete;
 
-public:
-    Vec10<float> joint_pos, joint_vel, joint_act;
-    Vec3<float> base_rpy, base_rpy_rate, base_vel;
-
-    void init(bool general, bool rl, const char* udp_broadcast_ip = "255.255.255.255", int udp_port = 9870) {
-        if (general) {
-            if (general_fp == nullptr) {
-                general_fp = fopen(general_file, "w");
-                if (general_fp == nullptr) {
-                    cout << "The general file can not be opened." << endl;
-                    //exit(-1);
-                }
-            }
-        }
-        if (rl) {
-            if (rl_fp == nullptr) {
-                rl_fp = fopen(rl_file, "w");
-                if (rl_fp == nullptr) {
-                    cout << "The rl file can not be opened." << endl;
-                    exit(-1);
-                }
-            }
-        }
-        // UDP broadcast socket
-        udp_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
-        if (udp_sock_ >= 0) {
-            int broadcast = 1;
-            setsockopt(udp_sock_, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-            memset(&udp_addr_, 0, sizeof(udp_addr_));
-            udp_addr_.sin_family      = AF_INET;
-            udp_addr_.sin_port        = htons(udp_port);
-            udp_addr_.sin_addr.s_addr = inet_addr(udp_broadcast_ip);
-            cout << "UDP broadcast initialized → " << udp_broadcast_ip << ":" << udp_port << endl;
-        } else {
-            cout << "Warning: failed to create UDP socket." << endl;
-        }
-        report_data_title();
-    }
-
-    void close() {
-        if (general_fp) {
-            if (fclose(general_fp)) {
-                cout << fclose(general_fp) << endl;
-            }
-            general_fp = nullptr;
-        }
-        if (rl_fp) {
-            if (fclose(rl_fp)) {
-                cout << fclose(rl_fp) << endl;
-            }
-            rl_fp = nullptr;
-        }
-        if (udp_sock_ >= 0) {
-            ::close(udp_sock_);
-            udp_sock_ = -1;
-        }
-    }
-
-    void report_data(RLController *rlController) {
-        push_data2buffer(rlController);
-        if (general_fp) {
-            ///general data
-            for (float i: _general_buffer)
-                fprintf(general_fp, "%lf\t", i);
-            fprintf(general_fp, "\n");
-        }
-        if (rl_fp) {
-            ///rl data
-            for (float i: _rl_buffer)
-                fprintf(rl_fp, "%lf\t", i);
-            fprintf(rl_fp, "\n");
-        }
-        // UDP broadcast at ~20Hz (every 5 calls at 100Hz)
-        if (udp_sock_ >= 0 && !_general_buffer.empty()) {
-            udp_counter_++;
-            if (udp_counter_ >= 5) {
-                udp_counter_ = 0;
-                std::ostringstream oss;
-                for (size_t i = 0; i < _general_buffer.size(); ++i) {
-                    if (i > 0) oss << ',';
-                    oss << _general_buffer[i];
-                }
-                std::string msg = oss.str();
-                sendto(udp_sock_, msg.c_str(), msg.size(), 0,
-                       (struct sockaddr*)&udp_addr_, sizeof(udp_addr_));
-            }
-        }
-    }
+    void init(bool general, bool rl,
+              const char* udp_broadcast_ip = "255.255.255.255",
+              int udp_port = 9870);
+    void close();
+    void report_data(const RLController& rl);
 
 private:
-    std::mutex _data_report_mutex;
+    void report_data_title();
+    void push_data2buffer(const RLController& rl);
 
-    const char *general_file = "general.txt";
-    const char *rl_file = "rl.txt";
-    FILE *general_fp = nullptr;
-    FILE *rl_fp = nullptr;
+    std::mutex mu_;
+    const char* general_file_ = "general.txt";
+    const char* rl_file_      = "rl.txt";
+    FILE* general_fp_ = nullptr;
+    FILE* rl_fp_      = nullptr;
 
-    std::vector<float> _general_buffer;
-    std::vector<float> _rl_buffer;
+    std::vector<float> general_buffer_;
+    std::vector<float> rl_buffer_;
 
     int udp_sock_    = -1;
     int udp_counter_ = 0;
     struct sockaddr_in udp_addr_{};
-
-    const string LEG_NAMES[2] = {"l", "r"};
-
-    const string AXIS[3] = {"x", "y", "z"};
-    const string QUATNAME[4] = {"w", "x", "y", "z"};
-
-    const string LEG_JOINT_NAMES[5] = {"hyaw", "hrol", "hpit", "knee", "apit",};
-
-    const string RPY_NAMES[3] = {"rol", "pit", "yaw"};
-    const string JOINT_STATE_NAMES[4] = {"C", "P", "V", "T"};
-
-    const string JOINT_STATE_NAMES2RL[3] = {"C", "E", "V"};
-
-    const string SINCOS_NAMES[2] = {"sin", "cos"};
-
-    const int ACT_JOINTS_NUM = 10;
-
-private:
-    void report_data_title() {
-        ///for general data title
-        if (general_fp) {
-            //qC, qP, qV
-            for (auto &joint_state_name: JOINT_STATE_NAMES) {
-                for (auto &leg_name: LEG_NAMES) {
-                    for (auto &leg_joint_name: LEG_JOINT_NAMES) {
-                        fprintf(general_fp, "%s\t", (joint_state_name + "_" + leg_name + "_" + leg_joint_name).c_str());
-                    }
-                }
-            }
-            //rpy
-            for (auto &rpy_name: RPY_NAMES) {
-                fprintf(general_fp, "%s\t", rpy_name.c_str());
-            }
-            //rpy rate
-            for (auto &rpy_name: RPY_NAMES) {
-                fprintf(general_fp, "%s\t", (rpy_name + "_" + "rate").c_str());
-            }
-            //base acc
-            for (auto &rpy_name: AXIS) {
-                fprintf(general_fp, "%s\t", (rpy_name + "_" + "acc").c_str());
-            }
-            //base quat
-            for (auto &q_name: QUATNAME) {
-                fprintf(general_fp, "%s\t", (q_name + "_" + "quat").c_str());
-            }
-            fprintf(general_fp, "\n");
-        }
-        ///for rl data title
-        if (rl_fp) {
-            //net_out
-            for (auto &leg_name: LEG_NAMES) {
-                fprintf(rl_fp, "%s\t", (leg_name + "_" + "f").c_str());
-            }
-            for (auto &leg_name: LEG_NAMES) {
-                for (auto &leg_joint_name: LEG_JOINT_NAMES) {
-                    fprintf(rl_fp, "%s\t", (leg_name + "_" + leg_joint_name + "_out").c_str());
-                }
-            }
-            for (int jj(0); jj < 3; jj++) {
-                //cmd
-                fprintf(rl_fp, "vx_cmd\tyr_cmd\t");
-                //rp
-                fprintf(rl_fp, "rol\tpit\t");
-                //rpy rate
-                for (auto &rpy_name: RPY_NAMES) {
-                    fprintf(rl_fp, "%s\t", (rpy_name + "_" + "rate").c_str());
-                }
-                //joint state
-                for (auto &joint_state_name: JOINT_STATE_NAMES2RL) {
-                    for (auto &leg_name: LEG_NAMES) {
-                        for (auto &leg_joint_name: LEG_JOINT_NAMES) {
-                            fprintf(rl_fp, "%s\t", (joint_state_name + "_" + leg_name + "_" + leg_joint_name).c_str());
-                        }
-                    }
-                }
-                //pm phase
-                for (auto &sincos_name: SINCOS_NAMES) {
-                    for (auto &leg_name: LEG_NAMES) {
-                        fprintf(rl_fp, "%s\t", (leg_name + "_" + sincos_name).c_str());
-                    }
-                }
-                //base acc
-                // for (auto &rpy_name: AXIS) {
-                // fprintf(rl_fp, "%s\t", (rpy_name + "_" + "acc").c_str());
-                // }
-                //pmf
-                for (auto &leg_name: LEG_NAMES) {
-                    fprintf(rl_fp, "%s\t", (leg_name + "_" + "pf").c_str());
-                }
-            }
-
-            fprintf(rl_fp, "\n");
-        }
-    }
-
-    void push_data2buffer(RLController *rlController) {
-        std::vector<float> temp(0, 0.);
-        _data_report_mutex.lock();
-        temp.clear();
-        /// general data — always populate for UDP even if file logging is off
-        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_act(i));
-        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_pos(i));
-        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_vel(i));
-        for (int i = 0; i < ACT_JOINTS_NUM; ++i) temp.push_back(rlController->joint_tau(i));
-        for (float i: rlController->base_rpy)      temp.push_back(i);
-        for (float i: rlController->base_rpy_rate) temp.push_back(i);
-        for (float i: rlController->base_acc)      temp.push_back(i);
-        for (float i: rlController->base_quat)     temp.push_back(i);
-        _general_buffer = temp;
-        temp.clear();
-        /// todo rl data
-        if (rl_fp) {
-            for (float i: rlController->action_increment)
-                temp.push_back(i);
-            for (float i: rlController->observation)
-                temp.push_back(i);
-            _rl_buffer = temp;
-            temp.clear();
-        }
-        _data_report_mutex.unlock();
-    }
 };
 
-#endif
+}  // namespace qmini

@@ -1,0 +1,50 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 16,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "desktop-sim",
+            "displayName": "Desktop sim build (x86, no robot)",
+            "description": "Pure C++ sim backends. No Unitree SDK, no Python. ONNX optional.",
+            "binaryDir": "${sourceDir}/build/desktop-sim",
+            "cacheVariables": {
+                "BACKEND": "sim",
+                "WITH_ONNX": "OFF",
+                "WITH_TESTS": "ON",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "desktop-sim-onnx",
+            "inherits": "desktop-sim",
+            "binaryDir": "${sourceDir}/build/desktop-sim-onnx",
+            "cacheVariables": {
+                "WITH_ONNX": "ON"
+            }
+        },
+        {
+            "name": "robot-release",
+            "displayName": "Robot release build (arm64, hardware backend)",
+            "binaryDir": "${sourceDir}/build/robot-release",
+            "cacheVariables": {
+                "BACKEND": "hardware",
+                "WITH_ONNX": "ON",
+                "WITH_TESTS": "OFF",
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {"name": "desktop-sim",       "configurePreset": "desktop-sim"},
+        {"name": "desktop-sim-onnx",  "configurePreset": "desktop-sim-onnx"},
+        {"name": "robot-release",     "configurePreset": "robot-release"}
+    ],
+    "testPresets": [
+        {"name": "desktop-sim", "configurePreset": "desktop-sim",
+         "output": {"outputOnFailure": true}}
+    ]
+}

@@ -1,11 +1,46 @@
-#include "user/custom.hpp"
+#include <cstring>
+#include <csignal>
+#include <iostream>
+#include <string>
 
-int main(int argc, char const *argv[]) {
-    std::cout << "Usage networkInterface: " << "eth0 of Q1 robot " << std::endl;
-    std::string networkInterface = "wlP1p1s0";
-    G1 g1(networkInterface, false);
+#include "user/qmini_app.h"
 
-    while (true) sleep(10);
+namespace {
+qmini::QminiApp* g_app = nullptr;
+void handle_sigint(int) {
+    if (g_app) g_app->stop();
+}
+}  // namespace
 
+int main(int argc, char** argv) {
+    qmini::QminiApp::Options opts;
+
+    // CLI: --no-onnx (use identity policy), --keyboard (mode via stdin),
+    //      --no-log (skip CSV/UDP), --iface <name>, --policy <path>
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--no-onnx") opts.use_real_onnx = false;
+        else if (a == "--keyboard") opts.input_from_keyboard = true;
+        else if (a == "--no-log") opts.enable_logging = false;
+        else if (a == "--iface" && i + 1 < argc) {
+            opts.hw.network_interface = argv[++i];
+        } else if (a == "--policy" && i + 1 < argc) {
+            opts.policy_path = argv[++i];
+        } else {
+            std::cerr << "Unknown option: " << a << "\n";
+            return 2;
+        }
+    }
+
+    try {
+        qmini::QminiApp app(std::move(opts));
+        g_app = &app;
+        std::signal(SIGINT,  handle_sigint);
+        std::signal(SIGTERM, handle_sigint);
+        app.run();
+    } catch (const std::exception& e) {
+        std::cerr << "fatal: " << e.what() << "\n";
+        return 1;
+    }
     return 0;
 }

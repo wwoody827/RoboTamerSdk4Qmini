@@ -1,150 +1,76 @@
-//
-// Created by cyy on 24-10-7.
-//
+#pragma once
 
-#ifndef UNITREE_SDK2_MODE_SWITCHER_H
-#define UNITREE_SDK2_MODE_SWITCHER_H
+#include <cstdio>
 
+#include "user/hal/types.h"
 
-#include <stdio.h>
-#include <iostream>
-#include <vector>
-#include <chrono>
-#include <string>
-#include <ctime>
-#include <sys/time.h>
-#include <eigen3/Eigen/Dense>
-#include "unitree/g1/joystick.hpp"
-#include "joystick_reader.h"
+namespace qmini {
 
-using namespace std;
-
+// HAL-side mode switcher: reads button edges out of hal::JoystickFrame and
+// applies the same FSM rules as the pre-HAL code (no transition between
+// disjoint mode groups; '3'/'4'/'6'-'9' fold into '3' RL walking).
 class ModeSwitcher {
 public:
-    ModeSwitcher() {
-        jsreader.initJoystickReader();
-    }
+    int rl_task_mode = 0;
 
-    virtual ~ModeSwitcher() {
-        delete joystickBtn;
-    }
-
-public:
-    JoystickReader jsreader;
-    unitree::common::xKeySwitchUnion *joystickBtn = nullptr;
-    int rl_task_mode = 0;///[forward, stand, lateral]
-
-public:
-    char get_selected_key(char &mode) {
+    char read_from_joystick(const hal::JoystickFrame& js, char mode) {
         char key = '0';
-        while (true) {
-            for (int i = 0; i < 100; i++) { printf("\033[33m="); }
-            printf("\n\033[0m");
-            cout << "Current mode: " << mode <<"\tPlease input a mode: ";
-            cin >> key;
-            if (key == 'q' and mode == '1')
-                return key;
-            else if (key >= '1' && key <= '9') {
-                if (key == '3') {
-                    rl_task_mode = 3;/// key==3 (forward)
-                }else if (key == '4') {
-                    rl_task_mode = 4; /// key==4 (stand)
-                } else if (key == '5') {
-                    rl_task_mode = 5; /// /// key==5 (sin test)
-                } else if (key == '6') {
-                    rl_task_mode = 6;
-                } else if (key == '7') {
-                    rl_task_mode = 7;
-                } else if (key == '8') {
-                    rl_task_mode = 8;
-                } else if (key == '9') {
-                    rl_task_mode = 9;
-                }
-                if (std::abs(min(key, '3') - min(mode, '3')) <= 1  or mode>='3') {
-                    if (key>='3' and key!='5')
-                        key='3';
-                    return key;
-                }
-            }
-            printf("\033[31mInvalid mode, please input again...\n\033[0m");
+        if (js.button[9]) key = '1';        // START → ready
+        else if (js.button[0]) key = '2';   // A     → stand
+        else if (js.button[3]) {            // Y     → RL walk
+            rl_task_mode = 3; key = '3';
+        } else if (js.button[2]) {          // X     → RL stand
+            rl_task_mode = 4; key = '4';
+        } else if (js.button[8]) {          // SELECT → sin test
+            rl_task_mode = 5; key = '5';
+        } else if (js.button[4]) {          // L1
+            rl_task_mode = 6; key = '6';
+        } else if (js.button[5]) {          // R1
+            rl_task_mode = 7; key = '7';
+        } else if (js.button[6]) {          // L2
+            rl_task_mode = 8; key = '8';
+        } else if (js.button[7]) {          // R2
+            rl_task_mode = 9; key = '9';
+        } else if (js.button[1]) {          // B     → quit
+            key = 'q';
         }
-    }
-
-    char get_selected_jskey(char &mode) {
-        char key = '0';
-        jsreader.fetchJoystickData();
-        if ((int) jsreader.But[9]== 1) {///start ready
-            key = '1';
-        } else if ((int) jsreader.But[0] == 1) { ///A stand
-            key = '2';
-        } else if ((int) jsreader.But[3] == 1) {///Y motion
-            rl_task_mode = 3;
-            key = '3';
-        }else if ((int) jsreader.But[2] == 1) {///RL stand
-            rl_task_mode = 4;
-            key = '4';
-        } else if ((int) jsreader.But[8] == 1) {///SELECT sin test
-            rl_task_mode = 5;
-            key = '5';
-        }  else if ((int) jsreader.But[4] == 1) {///lateral
-            rl_task_mode = 6;
-            key = '6';
-        } else if ((int) jsreader.But[5] == 1) {
-            rl_task_mode = 7;
-            key = '7';
-        } else if ((int) jsreader.But[6] == 1) {
-            rl_task_mode = 8;
-            key = '8';
-        } else if ((int) jsreader.But[7] == 1) {
-            rl_task_mode = 9;
-            key = '9';
-        } else if ((int) jsreader.But[1] == 1) { key = 'q'; } //B exit
-        if (key == 'q')
-            return key;
+        if (key == 'q') return key;
         if (key >= '1') {
-            if (std::abs(min(key, '3') - min(mode, '3')) <= 1 or mode>='3') {
-                if (key>='3' and key !='5')
-                    key='3';
+            // group [1,2,3+] only allows adjacent moves; '3'+/'4-9' fold to '3'
+            const char km = std::min(key,  static_cast<char>('3'));
+            const char mm = std::min(mode, static_cast<char>('3'));
+            const int diff = (km > mm ? km - mm : mm - km);
+            if (diff <= 1 || mode >= '3') {
+                if (key >= '3' && key != '5') key = '3';
                 return key;
             }
         }
         return mode;
     }
 
-    char get_selected_stick(char &mode) {
+    char read_from_keyboard(char mode) {
         char key = '0';
-        if ((int) joystickBtn->components.start == 1) {///ready
-            key = '1';
-        } else if ((int) joystickBtn->components.A == 1) { ///stand
-            key = '2';
-        } else if ((int) joystickBtn->components.Y == 1) {///motion
-            rl_task_mode = 3;
-            key = '3';
-        }else if ((int) joystickBtn->components.X == 1) {///stand
-            rl_task_mode = 4;
-            key = '4';
-        } else if ((int) joystickBtn->components.select == 1) {///sin test
-            rl_task_mode = 5;
-            key = '5';
-        }  else if ((int) joystickBtn->components.down == 1) {///lateral
-            rl_task_mode = 6;
-            key = '6';
-        } else if ((int) joystickBtn->components.left == 1) {
-            rl_task_mode = 7;
-            key = '7';
-        } else if ((int) joystickBtn->components.up == 1) {
-            rl_task_mode = 8;
-            key = '8';
-        } else if ((int) joystickBtn->components.right == 1) {
-            rl_task_mode = 9;
-            key = '9';
-        } else if ((int) joystickBtn->components.B == 1) { key = 'q'; }
-        if (key == 'q')
-            return key;
-        if (key >= '1') {
-            if (std::abs(min(key, '3') - min(mode, '3')) <= 1 or mode>='3') {
-                if (key>='3' and key !='5')
-                    key='3';
+        std::printf("Current mode: %c  Please input a mode: ", mode);
+        std::fflush(stdout);
+        int c = std::getchar();
+        if (c == EOF) return mode;
+        key = static_cast<char>(c);
+        // drain rest of line
+        while (c != '\n' && c != EOF) c = std::getchar();
+        if (key == 'q' && mode == '1') return key;
+        if (key >= '1' && key <= '9') {
+            if (key == '3') rl_task_mode = 3;
+            else if (key == '4') rl_task_mode = 4;
+            else if (key == '5') rl_task_mode = 5;
+            else if (key == '6') rl_task_mode = 6;
+            else if (key == '7') rl_task_mode = 7;
+            else if (key == '8') rl_task_mode = 8;
+            else if (key == '9') rl_task_mode = 9;
+            const char km = std::min(key,  static_cast<char>('3'));
+            const char mm = std::min(mode, static_cast<char>('3'));
+            const int diff = (km > mm ? km - mm : mm - km);
+            if (diff <= 1 || mode >= '3') {
+                if (key >= '3' && key != '5') key = '3';
                 return key;
             }
         }
@@ -153,24 +79,15 @@ public:
 
     static void print_selected_mode(char mode) {
         switch (mode) {
-            case '1':
-                printf("\033[32mCurrent mode: folding...\n\033[0m");
-                break;
-            case '2':
-                printf("\033[32mCurrent mode: standing...\n\033[0m");
-                break;
-            case '3':
-                printf("\033[32mCurrent mode: RL walking...\n\033[0m");
-                break;
-            case '4':
-                printf("\033[32mCurrent mode: sin waving(step in place)...\n\033[0m");
-                break;
-            default:
-                break;
+            case '1': std::printf("\033[32mCurrent mode: folding...\n\033[0m"); break;
+            case '2': std::printf("\033[32mCurrent mode: standing...\n\033[0m"); break;
+            case '3': std::printf("\033[32mCurrent mode: RL walking...\n\033[0m"); break;
+            case '4': std::printf("\033[32mCurrent mode: RL stand / step-in-place...\n\033[0m"); break;
+            case '5': std::printf("\033[32mCurrent mode: sin test...\n\033[0m"); break;
+            case 'q': std::printf("\033[31mE-stop\n\033[0m"); break;
+            default: break;
         }
     }
-
 };
 
-
-#endif //UNITREE_SDK2_MODE_SWITCHER_H
+}  // namespace qmini

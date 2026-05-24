@@ -1,0 +1,73 @@
+#pragma once
+
+#include <atomic>
+#include <memory>
+
+#include "user/data_report.h"
+#include "user/hal/factory.h"
+#include "user/mode_switcher.h"
+#include "user/rl_controller.h"
+#include "utils/config.h"
+
+namespace qmini {
+
+// Top-level orchestrator. Owns HAL backends, the RLController, and the
+// recurrent threads. No DDS / Unitree types in its interface.
+class QminiApp {
+public:
+    struct Options {
+        hal::HardwareConfig hw;
+        std::string policy_path = "policy.onnx";  // ignored when use_real_onnx=false
+        bool use_real_onnx = true;
+        bool input_from_keyboard = false;         // dev: read mode from stdin
+        bool enable_logging = true;
+        bool start_threads = true;                // false → caller drives ticks
+    };
+
+    explicit QminiApp(Options opts);
+    ~QminiApp();
+
+    QminiApp(const QminiApp&) = delete;
+    QminiApp& operator=(const QminiApp&) = delete;
+
+    void run();      // blocks until stop()
+    void stop();
+    bool stopped() const { return stop_flag_.load(); }
+
+    // Single-tick API (used by tests; ignores threads).
+    void tick();
+
+    // Read-only accessors for tests.
+    const RLController& rl() const { return *rl_; }
+    char current_mode() const { return current_mode_; }
+
+private:
+    void control_tick();
+    void mode_tick();
+    void report_tick();
+
+    Options opts_;
+    ConfigParams cfg_;
+
+    std::unique_ptr<hal::IMotorBackend>    motor_;
+    std::unique_ptr<hal::IImuBackend>      imu_;
+    std::unique_ptr<hal::IJoystickBackend> joystick_;
+    std::unique_ptr<hal::IClock>           clock_;
+
+    std::unique_ptr<RLController> rl_;
+    ModeSwitcher mode_switcher_;
+    DataReporter reporter_;
+
+    char current_mode_  = '1';
+    char selected_mode_ = '1';
+    float relative_time_  = 0.f;
+    float control_dt_     = 0.01f;
+    static constexpr float kMoveDuration = 5.f;
+
+    std::atomic<bool> stop_flag_{false};
+    std::unique_ptr<hal::IRecurrentThread> control_thread_;
+    std::unique_ptr<hal::IRecurrentThread> mode_thread_;
+    std::unique_ptr<hal::IRecurrentThread> report_thread_;
+};
+
+}  // namespace qmini
