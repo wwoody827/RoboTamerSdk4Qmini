@@ -3,10 +3,15 @@
 ## What this repo is
 
 C++ real-robot deployment SDK for the **Unitree Qmini biped robot**.
-Loads an ONNX policy trained in `~/code/RoboTamer4Qmini`, reads IMU + motor state,
-runs inference at ~100Hz, and sends torque commands to the motors.
+Loads an ONNX policy trained in `~/code/qmini_lab` (Isaac Lab 2.3 + rsl_rl 5),
+reads IMU + motor state, runs inference at ~100Hz, and sends torque commands.
 
-**Related training repo**: `~/code/RoboTamer4Qmini`
+**Current training repo**: `~/code/qmini_lab`  (Isaac Lab, walking + static stand, MuJoCo sim2sim eval)
+**Legacy training repo**: `~/code/RoboTamer4Qmini`  (Isaac Gym, V2 stand only — ports of rewards live in qmini_lab now)
+
+### Workspace
+Both are accessible via `~/code/qmini-workspace/repos/<name>` symlinks.
+See `~/code/qmini-workspace/CLAUDE.md` for cross-repo coupling overview.
 
 ---
 
@@ -133,23 +138,37 @@ torque = kp × (target − pos) + kd_bias − vel + joint_offset − 3.5 × sign
 
 ---
 
-## Critical sync points with training repo
+## Critical sync points with training repo (qmini_lab)
 
-If you change **any** of the following in `~/code/RoboTamer4Qmini`, you must update this SDK too:
+If you change **any** of the following in `~/code/qmini_lab`, you must update this SDK too:
 
-1. **Observation vector** (`birl_task.py::pure_observation`) → `rl_controller.cpp::get_observation()`
-2. **`num_obs_per_step`** in `qmini_birl.yaml` → `num_observations` in SDK config YAML
-3. **`static_flag` threshold** (0.15) → same value in `get_observation()`
-4. **Phase modulator formula** → `compute_pm_phase()`
-5. **Action scaling bounds** → `act_inc_low/high` in config
-6. **Torque formula** → `legged_robot.py` line ~414
+1. **Observation vector layout** (`source/qmini_lab/tasks/walk_v2/walk_v2_env.py::_get_observations`) → `rl_controller.cpp::get_observation()`. Per-step dim **43** (V11+, phase clock added 4 dims: sin/cos φ_L, sin/cos φ_R).
+2. **`actor_step_dim`** in `walk_v2_env_cfg.py` (currently `43`) → `num_observations` in SDK config YAML (with `obs_history=5` → 215 total).
+3. **`static_threshold`** (0.15 m/s) → same in `get_observation()`.
+4. **Phase clock**: `phase_base_freq=2.0` Hz, advances only when cmd_vx > threshold, reset to 0. Mirror in `rl_controller.cpp`.
+5. **Action scaling**: residual range ±0.5 rad, LP α=0.55, `action_clamp=True` (V13+). SDK must clamp action to [-1, 1].
+6. **`max_depenetration_velocity=0.05`** in `assets/q1/robot_cfg.py` — Isaac/sim only, no SDK effect.
+7. **Manifest schema**: `source/qmini_lab/deploy/manifest.py` (Pydantic, `extra="forbid"`). SDK parses YAML — any new field breaks loader.
+8. **Joint order**: `assets/q1/constants.py::QMINI_JOINT_NAMES`. URDF + SDK must match.
+9. **Foot collision in URDF**: box 0.11×0.05×0.02 m (V35+) at xyz (0.005, ±0.012, -0.084). Sim only.
+
+### Legacy reference (RoboTamer4Qmini, Isaac Gym era)
+
+V2 static-stand rewards were ported from `~/code/RoboTamer4Qmini/envs/v2_stand_env.py` into qmini_lab. SDK's old obs layout (44 dims, no phase clock) used RoboTamer4Qmini policies. Don't deploy those on current SDK without re-aligning obs dim.
 
 ---
 
 ## Deploying a new policy
 
-1. Train in `~/code/RoboTamer4Qmini` → get `.onnx` from `experiments/<name>/deploy/`
-2. Copy `policy_<iter>.onnx` to `bin/policy.onnx` on the robot
-3. Ensure `num_observations: 44` in the SDK config YAML
-4. Rebuild if any C++ was changed
+1. Train in `~/code/qmini_lab` (see its CLAUDE.md)
+2. After training, ONNX + manifest live in:
+   `~/code/IsaacLab/logs/rsl_rl/qmini_walk_v2/<run_name>/exported/best/`
+   or `.../exported/iter_NNNNNN/`
+3. Copy to robot:
+   ```
+   bin/policy.onnx           ← exported/<.>/policy.onnx
+   bin/policy_manifest.yaml  ← exported/<.>/policy_manifest.yaml
+   ```
+4. Verify `num_observations: 215` (= 43 per-step × 5 stack) in SDK config YAML.
+5. Rebuild if C++ obs builder changed.
 5. Run `./run_interface`
