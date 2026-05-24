@@ -1,5 +1,28 @@
 # HAL Plan — Desktop Development & Robot Release
 
+> **Status (May 2026): LANDED.**
+> This document is kept as the original architecture proposal. The
+> realized design is documented in [ARCHITECTURE.md](ARCHITECTURE.md) and
+> the build flow in [BUILDING.md](BUILDING.md).
+>
+> | Step | Status | Notes |
+> |------|--------|-------|
+> | 1. HAL types + interfaces + factory | ✓ | `include/user/hal/` |
+> | 2. Joystick backend (Linux jsX, no Python) | ✓ | Pure C++ instead of pygame |
+> | 3. IMU backend (termios, no Python) | ✓ | Pure C++ instead of pyserial |
+> | 4. Motor backend | ✓ | POD I/O at the boundary |
+> | 5. Clock abstraction | ✓ | `IClock`, hardware wraps `CreateRecurrentThreadEx` |
+> | 6. CMake split + presets | ✓ | `desktop-sim`, `desktop-mujoco`, `robot-release` |
+> | 7. Golden-vector test for obs | ✓ | `tests/test_obs_builder.cpp` |
+> | 8. Replay backend (file-driven) | ✗ deferred | Superseded by `BACKEND=mujoco` for sim2sim; file-replay still useful for regression on real logs |
+> | 9. `policy_meta.yaml` startup gate | ✗ deferred | Recommended next pass |
+>
+> The python-removal design picked **Option A** (pure C++ everywhere).
+> See [PYTHON_REMOVAL.md](PYTHON_REMOVAL.md).
+
+---
+
+
 ## Goal
 
 Separate the development environment from the real-running environment so most

@@ -1,5 +1,30 @@
 # Pre-HAL Refactor Plan
 
+> **Status (May 2026): LANDED.** The A-tier items (A1–A5) were applied
+> as part of the HAL refactor; the B and C tiers were largely subsumed
+> by the rewrite or are still nice-to-haves. See
+> [ARCHITECTURE.md](ARCHITECTURE.md) for the realized design.
+>
+> | Item | Status |
+> |------|--------|
+> | A1 header→cpp split | ✓ |
+> | A2 RLController owning foreign pointers | ✓ (now non-owning) |
+> | A3 `exit(1)` from control thread | ✓ (stop flag in QminiApp) |
+> | A4 `get_observation` 6+ side effects | ✓ (`ObsBuilder` extracted, pure) |
+> | A5 uninitialized `pthread_mutex_t` | ✓ (`std::mutex`) |
+> | B1 magic 0.15 threshold | ✓ (`ObsParams::static_threshold`) |
+> | B2 scattered magic constants | partial (still some in `transform()`) |
+> | B3 `jointIndex2Sim` identity remap | removed |
+> | B4 `Py_Initialize` × 2 UB | ✓ (no embedded Python at all) |
+> | B5 `MonitorThread()` runs once | n/a (old motor controller gone) |
+> | B6 hardcoded relative paths | partial (`config.yaml` still CWD-relative) |
+> | B7 hardcoded network iface | ✓ (`--iface` CLI) |
+> | B8 hardcoded FTDI serials | unchanged — still in `motor_unitree.cpp`, see `MOTOR_PORT_MAP.md` |
+> | C* hygiene (namespacing, const-correctness, logging) | partial — namespace `qmini::` used throughout new code |
+
+---
+
+
 Refactors to do **before** the HAL split (see `HAL_PLAN.md`). Goal: pay back
 the HAL work, fix real bugs, and unblock testing — without repainting walls
 that are about to be knocked down.
