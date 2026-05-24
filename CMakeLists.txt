@@ -10,8 +10,8 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-set(BACKEND "sim" CACHE STRING "HAL backend: sim | hardware")
-set_property(CACHE BACKEND PROPERTY STRINGS sim hardware)
+set(BACKEND "sim" CACHE STRING "HAL backend: sim | mujoco | hardware")
+set_property(CACHE BACKEND PROPERTY STRINGS sim mujoco hardware)
 message(STATUS "Building with BACKEND=${BACKEND}")
 
 option(WITH_ONNX  "Link onnxruntime (real inference)"           ON)
@@ -44,6 +44,16 @@ if (BACKEND STREQUAL "sim")
         source/user/hal/sim/imu_sim.cpp
         source/user/hal/sim/joystick_keyboard.cpp
     )
+elseif (BACKEND STREQUAL "mujoco")
+    list(APPEND USER_SOURCES
+        source/user/hal/sim/clock_std.cpp
+        source/user/hal/sim/joystick_keyboard.cpp
+        source/user/hal/mujoco/world.cpp
+        source/user/hal/mujoco/motor_mujoco.cpp
+        source/user/hal/mujoco/imu_mujoco.cpp
+    )
+    # Private include dir so the three mujoco *.cpp can share world.h.
+    set(MUJOCO_PRIVATE_INC ${CMAKE_CURRENT_SOURCE_DIR}/source/user/hal/mujoco)
 elseif (BACKEND STREQUAL "hardware")
     list(APPEND USER_SOURCES
         source/user/hal/hardware/clock_unitree.cpp
@@ -52,7 +62,7 @@ elseif (BACKEND STREQUAL "hardware")
         source/user/hal/hardware/joystick_linux.cpp
     )
 else()
-    message(FATAL_ERROR "Unknown BACKEND=${BACKEND}; use sim or hardware")
+    message(FATAL_ERROR "Unknown BACKEND=${BACKEND}; use sim, mujoco, or hardware")
 endif()
 
 add_library(qmini_user STATIC ${USER_SOURCES})
@@ -123,6 +133,31 @@ if (WITH_ONNX)
 endif()
 
 # ---------------------------------------------------------------------------
+# MuJoCo backend deps
+# ---------------------------------------------------------------------------
+if (BACKEND STREQUAL "mujoco")
+    set(MUJOCO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/mujoco" CACHE PATH
+        "MuJoCo install root (must contain include/ and libmujoco.so)")
+    if (NOT EXISTS ${MUJOCO_DIR}/include/mujoco/mujoco.h)
+        message(FATAL_ERROR
+            "MuJoCo headers not found at ${MUJOCO_DIR}/include/mujoco/. "
+            "Symlink them in or set -DMUJOCO_DIR=<path>.")
+    endif()
+    find_library(MUJOCO_LIB mujoco PATHS ${MUJOCO_DIR} NO_DEFAULT_PATH)
+    if (NOT MUJOCO_LIB)
+        message(FATAL_ERROR "libmujoco.so not found in ${MUJOCO_DIR}")
+    endif()
+    message(STATUS "MuJoCo: include=${MUJOCO_DIR}/include lib=${MUJOCO_LIB}")
+    target_include_directories(qmini_user PUBLIC ${MUJOCO_DIR}/include)
+    target_include_directories(qmini_user PRIVATE ${MUJOCO_PRIVATE_INC})
+    target_link_libraries(qmini_user PUBLIC ${MUJOCO_LIB})
+    # Embed rpath so the binary finds libmujoco.so without LD_LIBRARY_PATH.
+    set_target_properties(qmini_user PROPERTIES
+        INSTALL_RPATH "${MUJOCO_DIR}"
+        BUILD_RPATH   "${MUJOCO_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
 # Hardware-only deps (Unitree SDK, motor SDK)
 # ---------------------------------------------------------------------------
 if (BACKEND STREQUAL "hardware")
@@ -157,6 +192,11 @@ endif()
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 add_executable(run_interface source/run_interface.cpp)
 target_link_libraries(run_interface PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    set_target_properties(run_interface PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests

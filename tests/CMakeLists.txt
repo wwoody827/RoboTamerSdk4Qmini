@@ -13,3 +13,14 @@ add_test(NAME sim_loop
     COMMAND ${CMAKE_COMMAND} -E chdir
             ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
             $<TARGET_FILE:test_sim_loop>)
+
+if (BACKEND STREQUAL "mujoco")
+    add_executable(test_mujoco_loop    test_mujoco_loop.cpp)
+    target_link_libraries(test_mujoco_loop PRIVATE qmini_user)
+    # MuJoCo loader needs sim_assets/q1_sim.mjcf in CWD; fixtures/ has
+    # config.yaml + a symlink to sim_assets/.
+    add_test(NAME mujoco_loop
+        COMMAND ${CMAKE_COMMAND} -E chdir
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
+                $<TARGET_FILE:test_mujoco_loop>)
+endif()

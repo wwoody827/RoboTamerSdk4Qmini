@@ -27,6 +27,18 @@
             }
         },
         {
+            "name": "desktop-mujoco",
+            "displayName": "Desktop MuJoCo physics backend",
+            "description": "Real physics via libmujoco; loads sim_assets/q1_sim.mjcf.",
+            "binaryDir": "${sourceDir}/build/desktop-mujoco",
+            "cacheVariables": {
+                "BACKEND": "mujoco",
+                "WITH_ONNX": "OFF",
+                "WITH_TESTS": "ON",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
             "name": "robot-release",
             "displayName": "Robot release build (arm64, hardware backend)",
             "binaryDir": "${sourceDir}/build/robot-release",
@@ -41,10 +53,13 @@
     "buildPresets": [
         {"name": "desktop-sim",       "configurePreset": "desktop-sim"},
         {"name": "desktop-sim-onnx",  "configurePreset": "desktop-sim-onnx"},
+        {"name": "desktop-mujoco",    "configurePreset": "desktop-mujoco"},
         {"name": "robot-release",     "configurePreset": "robot-release"}
     ],
     "testPresets": [
         {"name": "desktop-sim", "configurePreset": "desktop-sim",
+         "output": {"outputOnFailure": true}},
+        {"name": "desktop-mujoco", "configurePreset": "desktop-mujoco",
          "output": {"outputOnFailure": true}}
     ]
 }
