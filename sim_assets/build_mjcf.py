@@ -149,23 +149,24 @@ def finalize_xml(xml: str, hang_z: float | None) -> str:
         xml,
     )
     if hang_z is not None:
-        # Crank damping up. URDF damping (0.4-1.0 N·m·s/rad) is sized for
-        # the policy's PD loop, not for a freely-hanging passive leg. With
-        # the Euler default integrator, anything above ~6x diverges
-        # because of soft joint-limit kickback. So we ALSO switch to the
-        # implicit integrator, which is stable at much higher damping, and
-        # then push damping to 30x — enough to settle mode-'1' to a near-
-        # static pose in a few seconds.
-        xml = re.sub(r'damping="([\d.]+)"',
-                     lambda m: f'damping="{float(m.group(1)) * 30:.2f}"', xml)
-        # Implicit integrator: tolerates the higher damping cleanly and
-        # also handles the joint-limit constraint impulses without the
-        # explosive bouncing we saw with Euler.
-        xml = xml.replace(
-            "<compiler ",
-            '<option integrator="implicit"/>\n  <compiler ',
-            1,
+        # The URDF visual meshes for adjacent links overlap by 5-10cm at
+        # the joints (the mesh designer assumed they'd be visual-only).
+        # MuJoCo treats every geom as collidable by default and only
+        # excludes parent-child pairs — so base_link <-> hip_roll (a
+        # grandparent-child pair) fires huge contact impulses on tick 1,
+        # ejecting the legs at 40+ rad/s.
+        # Strip collision on every robot geom except the floor by setting
+        # contype=0 conaffinity=0.
+        xml = re.sub(
+            r'(<geom (?!name="floor")[^/]*?)/>',
+            r'\1 contype="0" conaffinity="0"/>',
+            xml,
         )
+        # Modest damping boost (3× URDF) — without the self-collision
+        # explosion the system is well-behaved at the URDF default; 3× is
+        # just to mimic the cable/harness drag a real robot has.
+        xml = re.sub(r'damping="([\d.]+)"',
+                     lambda m: f'damping="{float(m.group(1)) * 3:.2f}"', xml)
         # Add a <keyframe> with qpos at the stand reference pose. Loading
         # this keyframe at startup puts joints away from their range limits
         # so the soft limit constraint doesn't fire on the first tick.

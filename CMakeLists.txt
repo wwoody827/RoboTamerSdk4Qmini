@@ -238,3 +238,12 @@ if (WITH_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# Diagnostic: drives QminiApp through every FSM mode and prints joints.
+add_executable(probe_modes tools/probe_modes.cpp)
+target_link_libraries(probe_modes PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    set_target_properties(probe_modes PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()

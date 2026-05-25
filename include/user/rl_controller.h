@@ -67,6 +67,7 @@ public:
     const Vec10<float>& joint_vel()       const { return joint_vel_; }
     const Vec10<float>& joint_tau()       const { return joint_tau_; }
     const Vec10<float>& joint_act()       const { return joint_act_; }
+    const Vec10<float>& ref_joint_act()   const { return ref_joint_act_; }
     const Vec3<float>&  base_rpy()        const { return base_rpy_; }
     const Vec3<float>&  base_rpy_rate()   const { return base_rpy_rate_; }
     const Vec3<float>&  base_acc()        const { return base_acc_; }

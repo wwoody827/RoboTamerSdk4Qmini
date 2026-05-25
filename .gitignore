@@ -37,3 +37,4 @@ __pycache__/
 
 # Claude Code
 .claude/
+bin/probe_modes
