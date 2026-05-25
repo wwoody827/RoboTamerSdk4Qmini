@@ -55,6 +55,9 @@ QminiApp::QminiApp(Options opts)
     rl_->init();
     rl_->set_stand_kp_scale(opts_.stand_kp_scale);
     rl_->set_stand_kd_scale(opts_.stand_kd_scale);
+    if (opts_.sin_joint_idx != -2) {   // -2 sentinel → keep config.yaml value
+        rl_->set_sin_joint_idx(opts_.sin_joint_idx);
+    }
 
     if (opts_.enable_logging) {
         reporter_.init(true, true);

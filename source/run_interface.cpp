@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
             opts.sin_amplitude = std::stof(argv[++i]);
         } else if (a == "--sin-freq" && i + 1 < argc) {
             opts.sin_frequency = std::stof(argv[++i]);
+        } else if (a == "--sin-joint" && i + 1 < argc) {
+            opts.sin_joint_idx = std::stoi(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

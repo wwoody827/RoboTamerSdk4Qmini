@@ -61,6 +61,9 @@ public:
     // the joints against gravity in a visible way.
     void set_stand_kp_scale(float s) { stand_kp_scale_ = s; }
     void set_stand_kd_scale(float s) { stand_kd_scale_ = s; }
+    // Override which joint mode '5' (sin test) wiggles. -1 = all joints,
+    // 0..9 = single joint by index (HYL HRL HPL KL AL HYR HRR HPR KR AR).
+    void set_sin_joint_idx(int j) { cfg_.sin_joint_idx = j; }
 
     // Public telemetry (read-only views — held with the controller's lifetime).
     const Vec10<float>& joint_pos()       const { return joint_pos_; }

@@ -98,6 +98,8 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
 | `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
 | `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
+| `--sin-joint <N>` | In mode `5` (sin test), wiggle joint N instead of the config default. `-1` = all joints together. Indices: 0=hip_yaw_l, 1=hip_roll_l, 2=hip_pitch_l, 3=knee_l, 4=ankle_l, 5=hip_yaw_r, 6=hip_roll_r, 7=hip_pitch_r, 8=knee_r, 9=ankle_r. |
+| `--sin-amp <rad>` `--sin-freq <hz>` | Amplitude and frequency for the sin wiggle (defaults 0.5 rad / 1 Hz). |
 | `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
 | `--stand-kd-scale N` | Same as above for `kd`. Default 1.0. |
 | `--initial-mode <c>` | FSM mode at startup (default `1` = fold/no-torque). Pass `2` to boot directly into the stand controller — recommended with the hung MJCF so the legs don't flail under zero-torque gravity for several seconds before you press `2`. |
