@@ -8,6 +8,10 @@ bin/test_obs_builder
 bin/test_math
 bin/test_sim_loop
 bin/test_mujoco_loop
+bin/pd_calibration_tool
+
+# PD calibration data (per-run, robot-specific, megabytes each).
+data/pd_calibration/*/
 
 # MuJoCo install symlinks — local to each dev machine; create with
 # sim_assets/setup_mujoco.sh.

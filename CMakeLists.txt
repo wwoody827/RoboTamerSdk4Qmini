@@ -187,13 +187,29 @@ if (BACKEND STREQUAL "hardware")
 endif()
 
 # ---------------------------------------------------------------------------
-# Executable
+# Executables
 # ---------------------------------------------------------------------------
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 add_executable(run_interface source/run_interface.cpp)
 target_link_libraries(run_interface PRIVATE qmini_user)
 if (BACKEND STREQUAL "mujoco")
     set_target_properties(run_interface PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
+# PD calibration tool — drives the HAL motor backend through the protocol in
+# PD_CALIBRATION_SPEC.md. No policy / no ONNX. Builds under every preset
+# (sim / mujoco / hardware) because it only uses the HAL surface.
+add_executable(pd_calibration_tool
+    source/user/calibration/pd_calibration_main.cpp
+    source/user/calibration/loop.cpp
+    source/user/calibration/trials.cpp
+    source/user/calibration/npz_writer.cpp
+)
+target_link_libraries(pd_calibration_tool PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    set_target_properties(pd_calibration_tool PROPERTIES
         BUILD_RPATH   "${MUJOCO_DIR}"
         INSTALL_RPATH "${MUJOCO_DIR}")
 endif()
