@@ -240,7 +240,8 @@ if (WITH_TESTS)
 endif()
 
 # Diagnostic: drives QminiApp through every FSM mode and prints joints.
-add_executable(probe_modes tools/probe_modes.cpp)
+add_executable(probe_modes tools/probe_modes.cpp
+    source/user/calibration/npz_writer.cpp)
 target_link_libraries(probe_modes PRIVATE qmini_user)
 if (BACKEND STREQUAL "mujoco")
     set_target_properties(probe_modes PROPERTIES

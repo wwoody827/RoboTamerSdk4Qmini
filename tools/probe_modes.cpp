@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
+#include "user/calibration/npz_writer.h"
 #include "user/qmini_app.h"
 
 using qmini::QminiApp;
@@ -56,16 +58,42 @@ void probe_mode(char mode, double duration_s, float scale, const char* descripti
     for (auto* h : header) std::printf("%6s ", h);
     std::printf("\n");
 
+    // Log every tick to in-memory buffers, dump to NPZ at the end.
+    std::vector<double> t_log;
+    std::vector<float> q_log;     // (N, 10) row-major
+    std::vector<float> qa_log;    // commanded q_target
+    t_log.reserve(n_ticks);
+    q_log.reserve(n_ticks * qmini::hal::kNumJoints);
+    qa_log.reserve(n_ticks * qmini::hal::kNumJoints);
+
     for (int i = 0; i < n_ticks; ++i) {
         app.tick();
+        t_log.push_back(i * dt);
+        const auto& q = app.rl().joint_pos();
+        const auto& qa = app.rl().joint_act();
+        for (int j = 0; j < qmini::hal::kNumJoints; ++j) {
+            q_log.push_back(q[j]);
+            qa_log.push_back(qa[j]);
+        }
         if (i % sample_every == 0 || i == n_ticks - 1) {
             char tag[16];
             std::snprintf(tag, sizeof(tag), "t=%.2fs",  i * dt);
-            print_row(tag, app.rl().joint_pos());
+            print_row(tag, q);
         }
     }
     print_row("ref", app.rl().ref_joint_act());
     print_row("act", app.rl().joint_act());
+
+    // Dump NPZ.
+    char outpath[128];
+    std::snprintf(outpath, sizeof(outpath), "/tmp/probe_mode%c.npz", mode);
+    qmini::calib::NpzWriter w(outpath);
+    w.add_f64_1d("t", t_log.data(), t_log.size());
+    w.add_f32_2d("q", q_log.data(), t_log.size(), qmini::hal::kNumJoints);
+    w.add_f32_2d("q_target", qa_log.data(), t_log.size(), qmini::hal::kNumJoints);
+    w.add_f32_1d("ref", app.rl().ref_joint_act().data(), qmini::hal::kNumJoints);
+    w.close();
+    std::printf("  → wrote %s (%zu samples)\n", outpath, t_log.size());
 }
 
 }  // namespace
