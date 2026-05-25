@@ -24,7 +24,17 @@ struct LoopOptions {
     double warm_up_s     = 1.0;
     double rest_between_s = 0.5;
     double cooldown_s    = 2.0;
-    float  kp_hold       = 80.f;
+    // Per-joint hold gains for non-test joints. If left empty, the loop
+    // falls back to the scalar defaults below (spec §5 default: 80/2).
+    // Recommended (and what pd_calibration_main populates): the
+    // training-side QMINI_STIFFNESS / QMINI_PD_DAMPING values from
+    // config.yaml::kp/kd, so non-test joints are held with realistic
+    // per-joint authority instead of a blanket 80 (which over-stiffens
+    // small-inertia joints like ankle and causes integrator instability
+    // in MuJoCo dry-runs).
+    std::array<float, kNumJoints> hold_kp{};   // 0 → use kp_hold scalar
+    std::array<float, kNumJoints> hold_kd{};
+    float  kp_hold       = 80.f;   // fallback when hold_kp[i] == 0
     float  kd_hold       = 2.f;
     float  safe_dq_max   = 8.f;    // rad/s
     int    watchdog_n    = 2;      // consecutive ticks

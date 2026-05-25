@@ -375,6 +375,15 @@ int main(int argc, char** argv) {
         opts.rest_between_s = 0.2;
         opts.cooldown_s = 0.3;
     }
+    // Per-joint hold gains from config.yaml. With training-matched values
+    // (QMINI_STIFFNESS / QMINI_PD_DAMPING), non-test joints are held with
+    // realistic authority. The spec's blanket 80/2 over-stiffens small-
+    // inertia joints (ankle, foot) and excites high-freq chain modes in
+    // explicit-Euler MuJoCo, causing watchdog aborts during dry-runs.
+    for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
+        opts.hold_kp[i] = (i < static_cast<int>(cfg.kp.size())) ? cfg.kp[i] : opts.kp_hold;
+        opts.hold_kd[i] = (i < static_cast<int>(cfg.kd.size())) ? cfg.kd[i] : opts.kd_hold;
+    }
 
     qmini::calib::CalibrationLoop loop(motor.get(), imu.get(), opts, mgto);
     g_loop = &loop;

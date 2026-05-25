@@ -112,8 +112,9 @@ CalibrationLoop::CalibrationLoop(hal::IMotorBackend* motor,
                                  const PoseRef&      mgto_pose)
     : motor_(motor), imu_(imu), opts_(opts), mgto_(mgto_pose) {
     for (int i = 0; i < kNumJoints; ++i) {
-        hold_kp_[i] = opts_.kp_hold;
-        hold_kd_[i] = opts_.kd_hold;
+        // Per-joint override if set, else scalar fallback.
+        hold_kp_[i] = (opts_.hold_kp[i] > 0.f) ? opts_.hold_kp[i] : opts_.kp_hold;
+        hold_kd_[i] = (opts_.hold_kd[i] > 0.f) ? opts_.hold_kd[i] : opts_.kd_hold;
     }
 }
 

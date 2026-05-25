@@ -17,12 +17,28 @@ float StepSchedule::multiplier(double t) {
     // 3..5    0
     // 5..7   -1
     // 7..9    0
-    if (t < settle)                return 0.f;
+    //
+    // Transitions are smoothed over `ramp` (default 50 ms) using a
+    // half-cosine. The instantaneous step otherwise excites high-freq
+    // modes that destabilize explicit-Euler MuJoCo at 2 ms substep —
+    // ankle joints can ring to ±12 rad/s. A 50 ms ramp doesn't materially
+    // affect the step-response identification (which fits the second-order
+    // settling tail over ~500 ms+) and matches what a real motor's
+    // bandwidth-limited current loop would deliver anyway.
+    const double ramp = 0.05;
+    auto smoothstep = [ramp](double dt_into_segment, float lo, float hi) -> float {
+        if (dt_into_segment <= 0)    return lo;
+        if (dt_into_segment >= ramp) return hi;
+        const double u = dt_into_segment / ramp;
+        const double s = 0.5 * (1.0 - std::cos(M_PI * u));
+        return static_cast<float>(lo + (hi - lo) * s);
+    };
+    if (t < settle)            return smoothstep(t - settle,            0.f, 0.f);
     double s = t - settle;
-    if (s < seg)                   return +1.f;
-    if (s < 2 * seg)               return 0.f;
-    if (s < 3 * seg)               return -1.f;
-    return 0.f;
+    if (s < seg)               return smoothstep(s,                     0.f, +1.f);
+    if (s < 2 * seg)           return smoothstep(s - seg,              +1.f,  0.f);
+    if (s < 3 * seg)           return smoothstep(s - 2 * seg,           0.f, -1.f);
+    return smoothstep(s - 3 * seg, -1.f, 0.f);
 }
 
 float trial_offset(const Trial& trial, double t) {
