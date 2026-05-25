@@ -167,7 +167,7 @@ void QminiApp::control_tick() {
             if (rl_->counter_rl() < 2) rl_->stand_control(ratio);
             break;
         case '5':
-            rl_->sin_control(0.2f, 2.f, relative_time_);
+            rl_->sin_control(opts_.sin_amplitude, opts_.sin_frequency, relative_time_);
             break;
         default:
             rl_->stand_control(ratio);

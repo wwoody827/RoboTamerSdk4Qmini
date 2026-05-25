@@ -39,6 +39,10 @@ int main(int argc, char** argv) {
             opts.initial_mode = m[0];
         } else if (a == "--stand-duration" && i + 1 < argc) {
             opts.stand_duration = std::stof(argv[++i]);
+        } else if (a == "--sin-amp" && i + 1 < argc) {
+            opts.sin_amplitude = std::stof(argv[++i]);
+        } else if (a == "--sin-freq" && i + 1 < argc) {
+            opts.sin_frequency = std::stof(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

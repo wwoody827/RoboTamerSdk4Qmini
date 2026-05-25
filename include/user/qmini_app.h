@@ -27,6 +27,8 @@ public:
         float stand_kd_scale = 1.f;
         char  initial_mode = '1';                 // FSM mode at startup
         float stand_duration = 2.f;               // seconds to ramp init→ref
+        float sin_amplitude = 0.5f;               // mode '5' sin amplitude (rad)
+        float sin_frequency = 1.f;                // mode '5' sin frequency (Hz)
     };
 
     explicit QminiApp(Options opts);
