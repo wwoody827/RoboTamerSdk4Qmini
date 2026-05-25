@@ -25,6 +25,7 @@ public:
         bool enable_viewer = true;                // mujoco backend live viewer
         float stand_kp_scale = 1.f;               // see RLController docs
         float stand_kd_scale = 1.f;
+        char  initial_mode = '1';                 // FSM mode at startup
     };
 
     explicit QminiApp(Options opts);

@@ -33,6 +33,10 @@ int main(int argc, char** argv) {
             opts.stand_kp_scale = std::stof(argv[++i]);
         } else if (a == "--stand-kd-scale" && i + 1 < argc) {
             opts.stand_kd_scale = std::stof(argv[++i]);
+        } else if (a == "--initial-mode" && i + 1 < argc) {
+            std::string m = argv[++i];
+            if (m.empty()) { std::cerr << "--initial-mode needs a char\n"; return 2; }
+            opts.initial_mode = m[0];
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

@@ -13,6 +13,8 @@ namespace qmini {
 
 QminiApp::QminiApp(Options opts)
     : opts_(std::move(opts)) {
+    current_mode_  = opts_.initial_mode;
+    selected_mode_ = opts_.initial_mode;
     // ConfigParams loads from "config.yaml" in CWD.
     control_dt_ = cfg_.control_dt;
 

@@ -100,6 +100,7 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
 | `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
 | `--stand-kd-scale N` | Same as above for `kd`. Default 1.0. |
+| `--initial-mode <c>` | FSM mode at startup (default `1` = fold/no-torque). Pass `2` to boot directly into the stand controller — recommended with the hung MJCF so the legs don't flail under zero-torque gravity for several seconds before you press `2`. |
 
 ### Controls (desktop default — stdin joystick, raw mode, no echo)
 
@@ -145,11 +146,20 @@ Then pass it via `--mjcf`:
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 ../../bin/run_interface --no-onnx --no-log \
     --mjcf ../../sim_assets/q1_sim_hung.mjcf \
-    --stand-kp-scale 30
+    --stand-kp-scale 30 --initial-mode 2
 ```
 
-The torso is **welded** (6-DOF rigid pin) at z=1 m, so it stays
-upright without oscillating. The legs swing naturally below — great
+The torso is **rigidly attached** to the worldbody at the spawn pose
+(no freejoint → no equality solver needed), so it stays upright
+without oscillating. The floor sits at z = −1 m so the body visibly
+hangs 1 m above the ground.
+
+Why `--initial-mode 2`: the default startup mode is `1` (fold), which
+applies zero torque. Under zero torque + gravity, the hung legs flail
+freely and overshoot joint limits — they look like they're seizing
+up. Booting directly in stand mode (`2`) keeps the PD controller
+holding the reference pose from t=0, so the only motion you see is
+the smooth ramp from the URDF home pose to the stand pose over 5 s. The legs swing naturally below — great
 for sanity-checking actions without the robot face-planting.
 
 `--stand-kp-scale 30` is the boost that makes pressing `2` (stand)
