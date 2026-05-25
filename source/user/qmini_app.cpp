@@ -25,7 +25,14 @@ QminiApp::QminiApp(Options opts)
 
     motor_->start();
     imu_->start();
-    joystick_->start();
+    // When --keyboard is set, ModeSwitcher::read_from_keyboard owns stdin.
+    // Starting the sim KeyboardJoystick would put the TTY into raw mode and
+    // drain stdin out from under the mode switcher → user keystrokes vanish.
+    // Leave the joystick instance alive (so .read() still returns an empty
+    // frame the controller can consume) but skip start() to avoid the grab.
+    if (!opts_.input_from_keyboard) {
+        joystick_->start();
+    }
 
     std::unique_ptr<IPolicy> policy;
     if (opts_.use_real_onnx) {
@@ -61,6 +68,18 @@ QminiApp::QminiApp(Options opts)
                 "report", 10'000, [this] { report_tick(); });
         }
     }
+
+    if (opts_.input_from_keyboard) {
+        std::printf(
+            "[qmini] keyboard mode: type a digit + Enter to switch mode\n"
+            "        1=fold  2=stand  3=walk  5=sin  q=e-stop\n");
+    } else {
+        std::printf(
+            "[qmini] stdin joystick: keystrokes (no Enter, no echo)\n"
+            "        1=fold  2=stand  3=walk  5=sin  b=quit\n"
+            "        w/s=vx+/-  a/d=vy+/-  q/e=yaw+/-  r/space=reset cmd\n");
+    }
+    std::fflush(stdout);
 }
 
 QminiApp::~QminiApp() {
