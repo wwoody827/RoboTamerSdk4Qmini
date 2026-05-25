@@ -244,6 +244,12 @@ Full sweep is ~25 min, drives all 10 joints through Tests A (step)
     --notes "first calibration after harness setup"
 ```
 
+`--minimal` collapses Test A's 3×3 kp/kd grid to a single trial at
+(kp=30, kd=1.0). Drops per-joint time from ~161 s to ~73 s. Use after
+the full sweep has confirmed motor linearity on this hardware (slope
+α_kp ≈ 1) — re-calibration sessions can stick with `--minimal`. For
+a brand-new robot, run the full sweep on at least 1-2 joints first.
+
 Subset runs:
 
 ```bash

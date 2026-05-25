@@ -90,12 +90,13 @@ std::string fmt_label(const char* test, float kp, float kd,
 std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& act_pos_low,
     const std::array<float, kNumJoints>& act_pos_high,
-    const PoseRef& mgto_pose) {
+    const PoseRef& mgto_pose,
+    const std::vector<float>& kp_grid,
+    const std::vector<float>& kd_grid) {
+    const std::size_t n_step = kp_grid.size() * kd_grid.size();
     std::vector<Trial> out;
-    out.reserve(10 * (9 + 6 + 1));  // 10 joints × (9 step + 6 sine + 1 chirp)
+    out.reserve(10 * (n_step + 6 + 1));
 
-    const std::vector<float> kp_grid = {30.f, 50.f, 80.f};
-    const std::vector<float> kd_grid = {0.5f, 1.0f, 2.0f};
     const std::vector<float> sine_freqs = {0.25f, 0.5f, 1.f, 2.f, 4.f, 8.f};
 
     for (int j = 0; j < kNumJoints; ++j) {

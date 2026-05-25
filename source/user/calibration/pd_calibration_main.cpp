@@ -54,6 +54,10 @@ void print_usage(const char* prog) {
         "Options:\n"
         "  --quick                 Single joint, single short step (~3 s).\n"
         "                          For sim sanity-checking the binary.\n"
+        "  --minimal               Test A uses only kp=30, kd=1.0 (1 trial/joint\n"
+        "                          instead of the 9-point sweep). Useful for\n"
+        "                          re-calibration after motor linearity has\n"
+        "                          already been verified on this hardware.\n"
         "  --tests A,B,C           Which tests to run (default: A,B,C).\n"
         "  --joints N,N,...        Which joints to run (default: all 10).\n"
         "  --output-root <path>    Output root (default: data/pd_calibration).\n"
@@ -198,6 +202,7 @@ void write_run_meta(const fs::path& run_dir,
 int main(int argc, char** argv) {
     bool harness_checked = false;
     bool quick = false;
+    bool minimal = false;
     bool no_imu = false;
     std::string tests = "A,B,C";
     std::string joints_str;
@@ -223,6 +228,7 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
         else if (a == "--i-have-checked-the-harness") harness_checked = true;
         else if (a == "--quick") quick = true;
+        else if (a == "--minimal") minimal = true;
         else if (a == "--no-imu") no_imu = true;
         else if (a == "--tests")    tests = next("--tests");
         else if (a == "--joints")   joints_str = next("--joints");
@@ -296,7 +302,17 @@ int main(int argc, char** argv) {
     if (quick) {
         plan = qmini::calib::build_quick_plan(0);
     } else {
-        std::vector<Trial> all = qmini::calib::build_default_plan(lo, hi, mgto);
+        // --minimal collapses the spec's 3×3 step grid down to one trial per
+        // joint (kp=30, kd=1.0). Test B (sine sweep) and Test C (chirp) are
+        // unchanged since they already use a single (kp, kd) pair.
+        const std::vector<float> kp_grid = minimal
+            ? std::vector<float>{30.f}
+            : std::vector<float>{30.f, 50.f, 80.f};
+        const std::vector<float> kd_grid = minimal
+            ? std::vector<float>{1.0f}
+            : std::vector<float>{0.5f, 1.0f, 2.0f};
+        std::vector<Trial> all = qmini::calib::build_default_plan(
+            lo, hi, mgto, kp_grid, kd_grid);
         // Filter by --joints
         std::vector<int> joint_filter;
         if (!joints_str.empty()) {
