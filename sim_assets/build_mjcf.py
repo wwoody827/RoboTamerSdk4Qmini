@@ -67,7 +67,9 @@ def build_mjcf(hang_z: float | None) -> str:
     spawn_z = hang_z if hang_z is not None else 0.85
     root.pos = [0.0, 0.0, spawn_z]
 
-    # Worldbody scaffolding: floor.
+    # Floor geom (we'll post-process the XML to attach a material/texture —
+    # MjSpec drops textures added after a URDF-loaded compile, so we inject
+    # them as text in finalize_xml() below).
     spec.worldbody.add_geom(
         name="floor",
         type=mujoco.mjtGeom.mjGEOM_PLANE,
@@ -94,22 +96,53 @@ def build_mjcf(hang_z: float | None) -> str:
             forcerange=[-30.0, 30.0],
         )
 
-    # Optional harness: connect the base_link origin to a world point at
-    # (0, 0, hang_z). This is a 3-DOF anchor — the torso can rotate freely
-    # about that point (pendulum-style) but can't translate. Good enough to
-    # observe leg motion without the robot tipping or falling through floor.
+    # Optional harness: weld the base_link rigidly to its spawn pose. 6-DOF
+    # fix — orientation stays upright, no oscillation around COM. The legs
+    # move freely below. (mjEQ_CONNECT only fixes position; the torso would
+    # pendulum-swing — not what we want for clean observation.)
     if hang_z is not None:
         spec.add_equality(
-            type=mujoco.mjtEq.mjEQ_CONNECT,
+            type=mujoco.mjtEq.mjEQ_WELD,
             objtype=mujoco.mjtObj.mjOBJ_BODY,
             name1="base_link",
             name2="world",
-            data=[0.0, 0.0, 0.0, 0.0, 0.0, hang_z, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # data layout for WELD: [anchor(3), relpose(7=x,y,z,qw,qx,qy,qz), torquescale]
+            data=[0.0, 0.0, 0.0,
+                  0.0, 0.0, hang_z, 1.0, 0.0, 0.0, 0.0,
+                  1.0],
         )
 
     # Compile to validate, then dump XML.
     spec.compile()
-    return spec.to_xml()
+    return finalize_xml(spec.to_xml())
+
+
+def finalize_xml(xml: str) -> str:
+    """Inject floor texture/material + light into the generated MJCF.
+
+    MjSpec.from_file(URDF) won't keep textures added via add_texture; the
+    compile pass drops them silently. We inject them as text instead.
+    """
+    asset_inject = (
+        '    <texture name="floor_tex" type="2d" builtin="checker" '
+        'rgb1="0.30 0.32 0.36" rgb2="0.50 0.52 0.56" '
+        'width="300" height="300"/>\n'
+        '    <material name="floor_mat" texture="floor_tex" '
+        'texrepeat="5 5" texuniform="true" reflectance="0.1"/>\n'
+    )
+    xml = xml.replace("<asset>\n", "<asset>\n" + asset_inject, 1)
+    # Reference the material on the floor geom.
+    xml = xml.replace(
+        '<geom name="floor" size="5 5 0.1" type="plane" rgba="0.7 0.7 0.75 1"/>',
+        '<geom name="floor" size="5 5 0.1" type="plane" material="floor_mat"/>',
+    )
+    # Add a key light at the top of worldbody.
+    light_inject = (
+        '    <light pos="1 -1 3" dir="-0.3 0.3 -1" '
+        'diffuse="0.8 0.8 0.8" specular="0.3 0.3 0.3" castshadow="true"/>\n'
+    )
+    xml = xml.replace("<worldbody>\n", "<worldbody>\n" + light_inject, 1)
+    return xml
 
 
 def main() -> None:
