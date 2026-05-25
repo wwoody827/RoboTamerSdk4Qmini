@@ -114,7 +114,12 @@ def build_mjcf(hang_z: float | None) -> str:
     return finalize_xml(spec.to_xml(), hang_z)
 
 
-REF_JOINT_ACT = [0.4, -0.1, -1.5, 1.0, -1.3, -0.4, 0.1, 1.5, -1.0, 1.3]
+REF_JOINT_ACT = [
+    # IK-resolved standing pose at base_z=0.40, mirror-symmetric.
+    # Source: qmini_lab/.../constants.py QMINI_REF_JOINT_POSES_BY_Z[3].
+    +0.2346, -0.0372, -1.3862, +1.3959, -0.9879,
+    -0.2346, +0.0372, +1.3862, -1.3959, +0.9879,
+]
 
 
 def finalize_xml(xml: str, hang_z: float | None) -> str:

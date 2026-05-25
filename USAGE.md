@@ -146,7 +146,7 @@ Then pass it via `--mjcf`:
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 ../../bin/run_interface --no-onnx --no-log \
     --mjcf ../../sim_assets/q1_sim_hung.mjcf \
-    --stand-kp-scale 30 --initial-mode 2
+    --initial-mode 2
 ```
 
 The torso is **rigidly attached** to the worldbody at the spawn pose
@@ -157,17 +157,17 @@ hangs 1 m above the ground.
 Why `--initial-mode 2`: the default startup mode is `1` (fold), which
 applies **zero torque**. The hung MJCF starts joints at the stand-ref
 pose via a `<keyframe name="home">`, but with no torque + gravity the
-legs drift over a few seconds — the configuration is inherently
-unstable. Mode `1` is a passive init meant to be brief; on the real
-robot the operator presses `2` immediately. Booting directly in stand
-mode (`2`) keeps the PD controller holding the reference pose from
-t=0, so the only motion you see is the smooth ramp from the keyframe
-pose toward the policy reference over 5 s.
+legs drift — mode `1` is a passive init meant to be brief; on the
+real robot the operator presses `2` immediately. Booting directly in
+stand mode (`2`) keeps the PD controller holding the reference pose
+from t=0, ramping there over the configured `--stand-duration` (2 s
+default).
 
-The hung MJCF also bakes in 6× the URDF's joint damping so passive
-oscillations decay quickly when you do glance at mode `1`. It's still
-not as stable as a real harnessed robot (no cables, air drag, etc.)
-but the first second or two is usable. The legs swing naturally below — great
+`config.yaml`'s `kp / kd / ref_joint_act` are sourced verbatim from
+the training side (`qmini_lab/.../q1/constants.py` — see the comments
+in `config.yaml`). The default `--stand-kp-scale 1` works directly;
+no scaling needed. Earlier docs recommended `--stand-kp-scale 30` as
+a band-aid for stale config values that have since been synced. The legs swing naturally below — great
 for sanity-checking actions without the robot face-planting.
 
 `--stand-kp-scale 30` is the boost that makes pressing `2` (stand)

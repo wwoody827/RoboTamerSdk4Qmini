@@ -84,6 +84,6 @@
     <general name="act_ankle_pitch_r" joint="ankle_pitch_r" forcerange="-30 30"/>
   </actuator>
   <keyframe>
-    <key name="home" qpos="0.400 -0.100 -1.500 1.000 -1.300 -0.400 0.100 1.500 -1.000 1.300"/>
+    <key name="home" qpos="0.235 -0.037 -1.386 1.396 -0.988 -0.235 0.037 1.386 -1.396 0.988"/>
   </keyframe>
 </mujoco>
