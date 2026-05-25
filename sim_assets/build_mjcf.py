@@ -149,11 +149,23 @@ def finalize_xml(xml: str, hang_z: float | None) -> str:
         xml,
     )
     if hang_z is not None:
-        # Crank damping up so zero-torque mode '1' settles in <1 s instead of
-        # ringing for 5+ s. Real robots have far more damping from cables /
-        # harness / air than the URDF declares; this just approximates that.
+        # Crank damping up. URDF damping (0.4-1.0 N·m·s/rad) is sized for
+        # the policy's PD loop, not for a freely-hanging passive leg. With
+        # the Euler default integrator, anything above ~6x diverges
+        # because of soft joint-limit kickback. So we ALSO switch to the
+        # implicit integrator, which is stable at much higher damping, and
+        # then push damping to 30x — enough to settle mode-'1' to a near-
+        # static pose in a few seconds.
         xml = re.sub(r'damping="([\d.]+)"',
-                     lambda m: f'damping="{float(m.group(1)) * 6:.2f}"', xml)
+                     lambda m: f'damping="{float(m.group(1)) * 30:.2f}"', xml)
+        # Implicit integrator: tolerates the higher damping cleanly and
+        # also handles the joint-limit constraint impulses without the
+        # explosive bouncing we saw with Euler.
+        xml = xml.replace(
+            "<compiler ",
+            '<option integrator="implicit"/>\n  <compiler ',
+            1,
+        )
         # Add a <keyframe> with qpos at the stand reference pose. Loading
         # this keyframe at startup puts joints away from their range limits
         # so the soft limit constraint doesn't fire on the first tick.
