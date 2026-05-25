@@ -96,6 +96,8 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--no-log` | Don't write `general.txt` / `rl.txt` and don't open the UDP broadcast. |
 | `--keyboard` | Switch to line-mode stdin (digit + Enter). Use on hardware builds without a joystick — see note below. |
 | `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
+| `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
+| `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
 
 ### Controls (desktop default — stdin joystick, raw mode, no echo)
 
@@ -115,7 +117,38 @@ button press; you won't see what you type (raw mode, no echo).
 | `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
 | `r` / space | reset command axes to zero |
 
-The mode transition prints in green: `Current mode: standing…`.
+Each consumed key echoes a short tag on its own line, e.g.:
+
+```
+[key '2' → stand]
+[key 'w' → vx+]
+```
+
+`Current mode: standing…` prints in green on every mode transition.
+
+### Hanging the robot for observation
+
+The default MJCF lets the robot fall freely — fine for trained-policy
+deployment testing, useless for watching what the legs do under
+identity-zero actions (the robot just collapses). Bake a "hung"
+variant that pins the torso to a fixed world point:
+
+```bash
+python3 sim_assets/build_mjcf.py --hang 1.0   # writes q1_sim_hung.mjcf
+```
+
+Then pass it via `--mjcf`:
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
+../../bin/run_interface --no-onnx --no-log \
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf
+```
+
+The torso stays at z=1 m and can rotate freely (pendulum-style). The
+legs swing naturally — great for sanity-checking actions without the
+robot face-planting. Remove `--mjcf` (or rebake without `--hang`) when
+testing a real trained policy.
 
 ### About `--keyboard`
 
@@ -129,7 +162,7 @@ the direct keys above.
 To run with a trained policy:
 
 ```bash
-../../bin/run_interface --policy /path/to/policy.onnx --no-log --keyboard
+../../bin/run_interface --policy /path/to/policy.onnx --no-log
 # (requires the build to have WITH_ONNX=ON; use cmake preset desktop-sim-onnx
 #  or pass -DWITH_ONNX=ON when configuring desktop-mujoco)
 ```

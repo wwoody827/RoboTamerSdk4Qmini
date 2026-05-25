@@ -43,12 +43,7 @@ private:
 }  // namespace
 
 std::unique_ptr<IMotorBackend> make_motor_backend(const HardwareConfig& cfg) {
-    // HardwareConfig doesn't carry an MJCF path — fall back to the bundled
-    // sim_assets relative to CWD if cfg's joystick_path is at default.
-    // The QminiApp ctor for the mujoco preset passes the absolute path
-    // through HardwareConfig::imu_serial_path (we hijack it; see below).
-    (void)cfg;
-    return std::make_unique<MujocoMotorBackend>("sim_assets/q1_sim.mjcf");
+    return std::make_unique<MujocoMotorBackend>(cfg.mjcf_path);
 }
 
 }  // namespace hal

@@ -29,6 +29,9 @@ struct HardwareConfig {
     std::string joystick_path = "/dev/input/js0";
     // motor startq from config.yaml
     float startq[10] = {};
+    // mujoco backend: which MJCF to load (default: sim_assets/q1_sim.mjcf).
+    // Hardware backend ignores this.
+    std::string mjcf_path = "sim_assets/q1_sim.mjcf";
 };
 
 std::unique_ptr<IMotorBackend>   make_motor_backend(const HardwareConfig& cfg);

@@ -27,6 +27,8 @@ int main(int argc, char** argv) {
             opts.hw.network_interface = argv[++i];
         } else if (a == "--policy" && i + 1 < argc) {
             opts.policy_path = argv[++i];
+        } else if (a == "--mjcf" && i + 1 < argc) {
+            opts.hw.mjcf_path = argv[++i];
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

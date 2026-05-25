@@ -85,7 +85,7 @@ QminiApp::QminiApp(Options opts)
             "        1=fold  2=stand  3=walk  5=sin  q=e-stop\n");
     } else {
         std::printf(
-            "[qmini] stdin joystick: keystrokes (no Enter, no echo)\n"
+            "[qmini] stdin joystick: press a key (no Enter), see [key →] echo\n"
             "        1=fold  2=stand  3=walk  5=sin  b=quit\n"
             "        w/s=vx+/-  a/d=vy+/-  q/e=yaw+/-  r/space=reset cmd\n");
     }

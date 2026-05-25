@@ -2,18 +2,22 @@
 """Bake a self-contained MJCF + meshes from the qmini URDF.
 
 Output written to ``sim_assets/``:
-  - ``q1_sim.mjcf``  — main model (free base, floor, actuators)
-  - ``meshes/*.STL`` — copied from qmini_lab so the SDK build is self-contained
+  - ``q1_sim.mjcf``       — main model (free base, floor, actuators)
+  - ``q1_sim_hung.mjcf``  — variant with the torso pinned to a fixed world
+                            point (``--hang Z``); for observing motion in the
+                            viewer without the robot falling
+  - ``meshes/*.STL``      — copied from qmini_lab so SDK build is self-contained
 
-Run once whenever the URDF changes. The MuJoCo HAL backend loads
-``sim_assets/q1_sim.mjcf`` at runtime; nothing in this script is needed at
-runtime.
+Run once whenever the URDF changes. The MuJoCo HAL backend loads the model
+at runtime; pass ``--mjcf <path>`` to ``run_interface`` to pick the variant.
 
 Usage:
-    /home/woody/miniconda3/envs/env_isaaclab/bin/python3 sim_assets/build_mjcf.py
+    python3 sim_assets/build_mjcf.py             # → q1_sim.mjcf
+    python3 sim_assets/build_mjcf.py --hang 1.0  # → q1_sim_hung.mjcf
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 from pathlib import Path
@@ -25,7 +29,6 @@ URDF_PATH = Path(
 )
 MESH_SRC_DIR = URDF_PATH.parent.parent / "meshes"
 OUT_DIR = Path(__file__).resolve().parent
-MJCF_OUT = OUT_DIR / "q1_sim.mjcf"
 MESH_OUT_DIR = OUT_DIR / "meshes"
 
 JOINT_NAMES = [
@@ -47,22 +50,24 @@ def copy_meshes() -> None:
     print(f"copied {n} meshes → {MESH_OUT_DIR}")
 
 
-def build_mjcf() -> str:
+def build_mjcf(hang_z: float | None) -> str:
     if not URDF_PATH.exists():
         sys.exit(f"URDF not found: {URDF_PATH}")
     # Compile-time only: makes the MjSpec point mesh files at our copies.
     spec = mujoco.MjSpec.from_file(str(URDF_PATH))
     spec.meshdir = str(MESH_OUT_DIR)
 
-    # Add a free joint to the root link so the robot can fall.
+    # Add a free joint to the root link so the robot can fall (or, with a
+    # connect equality below, hang from a fixed world point).
     root = spec.body("base_link")
     if root is None:
         sys.exit("base_link not found")
     root.add_freejoint(name="root")
-    # Spawn ~0.85 m above the floor so the legs have room to settle.
-    root.pos = [0.0, 0.0, 0.85]
+    # Spawn at the hang height if requested, else default for legs-clear.
+    spawn_z = hang_z if hang_z is not None else 0.85
+    root.pos = [0.0, 0.0, spawn_z]
 
-    # Worldbody scaffolding: floor, light.
+    # Worldbody scaffolding: floor.
     spec.worldbody.add_geom(
         name="floor",
         type=mujoco.mjtGeom.mjGEOM_PLANE,
@@ -72,8 +77,6 @@ def build_mjcf() -> str:
         condim=3,
         friction=[1.0, 0.005, 0.0001],
     )
-    # Headless build — no light needed. (`add_light` API varies by mujoco
-    # version; renderable scene rigging is a downstream concern.)
 
     # Torque actuators, one per joint. The HAL motor backend applies PD on
     # top in C++ (kp*(q_target - q) - kd*dq + tau_ff), so MuJoCo only needs
@@ -91,18 +94,40 @@ def build_mjcf() -> str:
             forcerange=[-30.0, 30.0],
         )
 
+    # Optional harness: connect the base_link origin to a world point at
+    # (0, 0, hang_z). This is a 3-DOF anchor — the torso can rotate freely
+    # about that point (pendulum-style) but can't translate. Good enough to
+    # observe leg motion without the robot tipping or falling through floor.
+    if hang_z is not None:
+        spec.add_equality(
+            type=mujoco.mjtEq.mjEQ_CONNECT,
+            objtype=mujoco.mjtObj.mjOBJ_BODY,
+            name1="base_link",
+            name2="world",
+            data=[0.0, 0.0, 0.0, 0.0, 0.0, hang_z, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
+
     # Compile to validate, then dump XML.
     spec.compile()
     return spec.to_xml()
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--hang", type=float, default=None, metavar="Z",
+                    help="Hang base_link from a fixed world point at z=Z (m). "
+                         "Emits q1_sim_hung.mjcf instead of q1_sim.mjcf.")
+    args = ap.parse_args()
+
     copy_meshes()
-    xml = build_mjcf()
-    MJCF_OUT.write_text(xml)
-    print(f"wrote {MJCF_OUT} ({len(xml)} bytes)")
-    # Sanity check: load the result back and report shape.
-    m = mujoco.MjModel.from_xml_path(str(MJCF_OUT))
+    xml = build_mjcf(args.hang)
+    out = OUT_DIR / ("q1_sim_hung.mjcf" if args.hang is not None else "q1_sim.mjcf")
+    out.write_text(xml)
+    print(f"wrote {out} ({len(xml)} bytes)")
+    if args.hang is not None:
+        print(f"  harness: base_link anchored to world at z={args.hang} m")
+    m = mujoco.MjModel.from_xml_path(str(out))
     print(f"  nq={m.nq} nv={m.nv} nu={m.nu} njnt={m.njnt} nbody={m.nbody}")
 
 
