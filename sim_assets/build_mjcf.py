@@ -57,15 +57,23 @@ def build_mjcf(hang_z: float | None) -> str:
     spec = mujoco.MjSpec.from_file(str(URDF_PATH))
     spec.meshdir = str(MESH_OUT_DIR)
 
-    # Add a free joint to the root link so the robot can fall (or, with a
-    # connect equality below, hang from a fixed world point).
+    # Root placement.
+    # - Free-fall variant (default): add a free joint so the robot has all
+    #   6 DOFs and can fall under gravity.
+    # - Hung variant (--hang Z): DON'T add a freejoint. base_link is then
+    #   rigidly attached to its parent (worldbody) at body.pos = (0,0,Z).
+    #   The leg joints below still articulate; the torso stays put.
+    #   No equality-constraint solver involved — far more robust than weld
+    #   (weld + free joint + world body fights the integrator at t=0 and
+    #   ejects the robot upward in MuJoCo 3.8.x).
     root = spec.body("base_link")
     if root is None:
         sys.exit("base_link not found")
-    root.add_freejoint(name="root")
-    # Spawn at the hang height if requested, else default for legs-clear.
-    spawn_z = hang_z if hang_z is not None else 0.85
-    root.pos = [0.0, 0.0, spawn_z]
+    if hang_z is None:
+        root.add_freejoint(name="root")
+        root.pos = [0.0, 0.0, 0.85]
+    else:
+        root.pos = [0.0, 0.0, hang_z]
 
     # Floor geom (we'll post-process the XML to attach a material/texture —
     # MjSpec drops textures added after a URDF-loaded compile, so we inject
@@ -96,21 +104,9 @@ def build_mjcf(hang_z: float | None) -> str:
             forcerange=[-30.0, 30.0],
         )
 
-    # Optional harness: weld the base_link rigidly to its spawn pose. 6-DOF
-    # fix — orientation stays upright, no oscillation around COM. The legs
-    # move freely below. (mjEQ_CONNECT only fixes position; the torso would
-    # pendulum-swing — not what we want for clean observation.)
-    if hang_z is not None:
-        spec.add_equality(
-            type=mujoco.mjtEq.mjEQ_WELD,
-            objtype=mujoco.mjtObj.mjOBJ_BODY,
-            name1="base_link",
-            name2="world",
-            # data layout for WELD: [anchor(3), relpose(7=x,y,z,qw,qx,qy,qz), torquescale]
-            data=[0.0, 0.0, 0.0,
-                  0.0, 0.0, hang_z, 1.0, 0.0, 0.0, 0.0,
-                  1.0],
-        )
+    # (Earlier versions used <equality><weld> to pin the floating base; that
+    # produced a solver jolt at t=0 and ejected the robot upward in MuJoCo
+    # 3.8.x. The skip-freejoint approach above sidesteps the solver entirely.)
 
     # Compile to validate, then dump XML.
     spec.compile()
