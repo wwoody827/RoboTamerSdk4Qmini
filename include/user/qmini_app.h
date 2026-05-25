@@ -29,7 +29,7 @@ public:
         float stand_duration = 2.f;               // seconds to ramp init→ref
         float sin_amplitude = 0.5f;               // mode '5' sin amplitude (rad)
         float sin_frequency = 1.f;                // mode '5' sin frequency (Hz)
-        int   sin_joint_idx = -2;                 // -2 = use config.yaml; -1 = all; 0..9 = single
+        int   sin_joint_idx = -2;                 // -2 = use config.yaml; 0..9 = single joint
     };
 
     explicit QminiApp(Options opts);

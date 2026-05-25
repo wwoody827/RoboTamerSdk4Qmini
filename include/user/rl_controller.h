@@ -61,8 +61,11 @@ public:
     // the joints against gravity in a visible way.
     void set_stand_kp_scale(float s) { stand_kp_scale_ = s; }
     void set_stand_kd_scale(float s) { stand_kd_scale_ = s; }
-    // Override which joint mode '5' (sin test) wiggles. -1 = all joints,
-    // 0..9 = single joint by index (HYL HRL HPL KL AL HYR HRR HPR KR AR).
+    // Override which joint mode '5' (sin test) wiggles.
+    // Valid: 0..9 = single joint by index (HYL HRL HPL KL AL HYR HRR HPR KR AR).
+    // Anything else → sin_control no-ops as a safety. The historical
+    // "-1 = all joints" mode was removed; commanding every joint in sync
+    // is unsafe on the real robot (limits / topple).
     void set_sin_joint_idx(int j) { cfg_.sin_joint_idx = j; }
 
     // Public telemetry (read-only views — held with the controller's lifetime).

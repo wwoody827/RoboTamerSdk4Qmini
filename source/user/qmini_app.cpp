@@ -98,7 +98,7 @@ QminiApp::QminiApp(Options opts)
             "[qmini] stdin joystick: press a key (no Enter), see [key →] echo\n"
             "        1=fold  2=stand  3=walk  5=sin  b=quit\n"
             "        w/s=vx+/-  a/d=vy+/-  q/e=yaw+/-  r/space=reset cmd\n"
-            "        in mode 5:  [ / ] = prev/next sin joint (-1=ALL, 0..9)\n");
+            "        in mode 5:  [ / ] = prev/next sin joint (0..9)\n");
     }
     std::fflush(stdout);
 }
@@ -155,7 +155,8 @@ void QminiApp::mode_tick() {
 
     // Live sin-joint cycling: [ / ] (mapped to hat[0]) bump sin_joint_idx
     // when in mode '5'. Edge detect so the 60 ms hat pulse doesn't fire
-    // multiple times per press.
+    // multiple times per press. Range 0..9; "all joints" was removed for
+    // safety (would command every joint simultaneously regardless of pose).
     static const char* kJointNames[10] = {
         "hip_yaw_l", "hip_roll_l", "hip_pitch_l", "knee_l", "ankle_l",
         "hip_yaw_r", "hip_roll_r", "hip_pitch_r", "knee_r", "ankle_r",
@@ -163,12 +164,11 @@ void QminiApp::mode_tick() {
     if (js.hat[0] != 0 && last_hat0_ == 0) {
         int j = sin_joint_now_;
         j += (js.hat[0] > 0) ? 1 : -1;
-        if (j > 9) j = -1;          // wrap: 9 → -1 (all)
-        if (j < -1) j = 9;          //       -1 → 9
+        if (j > 9) j = 0;           // wrap 9 → 0
+        if (j < 0) j = 9;           // wrap 0 → 9
         sin_joint_now_ = j;
         rl_->set_sin_joint_idx(j);
-        const char* name = (j < 0) ? "ALL" : kJointNames[j];
-        std::printf("[sin] joint = %d (%s)\n", j, name);
+        std::printf("[sin] joint = %d (%s)\n", j, kJointNames[j]);
         std::fflush(stdout);
     }
     last_hat0_ = js.hat[0];

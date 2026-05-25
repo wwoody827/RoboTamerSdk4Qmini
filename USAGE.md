@@ -98,7 +98,7 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
 | `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
 | `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
-| `--sin-joint <N>` | In mode `5` (sin test), wiggle joint N instead of the config default. `-1` = all joints together. Indices: 0=hip_yaw_l, 1=hip_roll_l, 2=hip_pitch_l, 3=knee_l, 4=ankle_l, 5=hip_yaw_r, 6=hip_roll_r, 7=hip_pitch_r, 8=knee_r, 9=ankle_r. |
+| `--sin-joint <N>` | In mode `5` (sin test), wiggle joint N (0..9) instead of the config default. Indices: 0=hip_yaw_l, 1=hip_roll_l, 2=hip_pitch_l, 3=knee_l, 4=ankle_l, 5=hip_yaw_r, 6=hip_roll_r, 7=hip_pitch_r, 8=knee_r, 9=ankle_r. (`-1` = all-joints was removed — unsafe on real robot.) |
 | `--sin-amp <rad>` `--sin-freq <hz>` | Amplitude and frequency for the sin wiggle (defaults 0.5 rad / 1 Hz). |
 | `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
 | `--stand-kd-scale N` | Same as above for `kd`. Default 1.0. |
@@ -121,7 +121,7 @@ button press; you won't see what you type (raw mode, no echo).
 | `a` / `d` | `cmd_vy` ± 0.1 m/s |
 | `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
 | `r` / space | reset command axes to zero |
-| `[` / `]` | in mode `5`, cycle to prev/next sin-test joint live (no restart). Wraps `9` → `-1` (all). |
+| `[` / `]` | in mode `5`, cycle to prev/next sin-test joint live (no restart). Wraps `9` → `0`. |
 
 Each consumed key echoes a short tag on its own line, e.g.:
 

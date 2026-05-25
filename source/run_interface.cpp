@@ -44,7 +44,13 @@ int main(int argc, char** argv) {
         } else if (a == "--sin-freq" && i + 1 < argc) {
             opts.sin_frequency = std::stof(argv[++i]);
         } else if (a == "--sin-joint" && i + 1 < argc) {
-            opts.sin_joint_idx = std::stoi(argv[++i]);
+            int j = std::stoi(argv[++i]);
+            if (j < 0 || j > 9) {
+                std::cerr << "--sin-joint must be in 0..9 (was " << j
+                          << "; the all-joints mode was removed for safety)\n";
+                return 2;
+            }
+            opts.sin_joint_idx = j;
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

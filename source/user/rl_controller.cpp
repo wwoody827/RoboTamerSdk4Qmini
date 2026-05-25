@@ -213,16 +213,15 @@ void RLController::stand_control(float ratio) {
 }
 
 void RLController::sin_control(float amplitude, float f, float t) {
-    Vec10<float> off;
-    off.setConstant(amplitude * std::sin(2.f * static_cast<float>(M_PI) * f * t));
+    // Single-joint sin test only — the "wiggle all 10 joints in sync"
+    // mode was removed because it's unsafe on the real robot (every
+    // joint commanded at the same offset, regardless of pose, can
+    // easily exceed limits or topple the robot).
     std::lock_guard<std::mutex> g(state_mutex_);
-    if (cfg_.sin_joint_idx == -1) {
-        joint_act_.segment(0, kNumActuatedJoints) =
-            init_joint_act_.segment(0, kNumActuatedJoints) + off;
-    } else {
-        joint_act_[cfg_.sin_joint_idx] =
-            init_joint_act_[cfg_.sin_joint_idx] + off[cfg_.sin_joint_idx];
-    }
+    const int j = cfg_.sin_joint_idx;
+    if (j < 0 || j >= kNumActuatedJoints) return;  // safety no-op
+    const float off = amplitude * std::sin(2.f * static_cast<float>(M_PI) * f * t);
+    joint_act_[j] = init_joint_act_[j] + off;
     joint_act_ = joint_act_.cwiseMax(act_pos_low_).cwiseMin(act_pos_high_);
 }
 
