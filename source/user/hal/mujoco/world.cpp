@@ -40,6 +40,14 @@ bool World::load(const std::string& mjcf_path) {
         return false;
     }
     data_ = mj_makeData(model_);
+    // If the MJCF defines a keyframe named "home", apply it. The hung
+    // variant uses this to start joints away from their range limits, so
+    // the soft-limit constraint doesn't fire on the first tick and
+    // mode '1' (zero-torque) settles cleanly instead of ringing.
+    int kf_home = mj_name2id(model_, mjOBJ_KEY, "home");
+    if (kf_home >= 0) {
+        mj_resetDataKeyframe(model_, data_, kf_home);
+    }
     mj_forward(model_, data_);
 
     // Locate joint qpos/qvel addresses + actuator ids.

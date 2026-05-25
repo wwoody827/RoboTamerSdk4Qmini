@@ -155,11 +155,19 @@ without oscillating. The floor sits at z = −1 m so the body visibly
 hangs 1 m above the ground.
 
 Why `--initial-mode 2`: the default startup mode is `1` (fold), which
-applies zero torque. Under zero torque + gravity, the hung legs flail
-freely and overshoot joint limits — they look like they're seizing
-up. Booting directly in stand mode (`2`) keeps the PD controller
-holding the reference pose from t=0, so the only motion you see is
-the smooth ramp from the URDF home pose to the stand pose over 5 s. The legs swing naturally below — great
+applies **zero torque**. The hung MJCF starts joints at the stand-ref
+pose via a `<keyframe name="home">`, but with no torque + gravity the
+legs drift over a few seconds — the configuration is inherently
+unstable. Mode `1` is a passive init meant to be brief; on the real
+robot the operator presses `2` immediately. Booting directly in stand
+mode (`2`) keeps the PD controller holding the reference pose from
+t=0, so the only motion you see is the smooth ramp from the keyframe
+pose toward the policy reference over 5 s.
+
+The hung MJCF also bakes in 6× the URDF's joint damping so passive
+oscillations decay quickly when you do glance at mode `1`. It's still
+not as stable as a real harnessed robot (no cables, air drag, etc.)
+but the first second or two is usable. The legs swing naturally below — great
 for sanity-checking actions without the robot face-planting.
 
 `--stand-kp-scale 30` is the boost that makes pressing `2` (stand)

@@ -111,14 +111,25 @@ def build_mjcf(hang_z: float | None) -> str:
 
     # Compile to validate, then dump XML.
     spec.compile()
-    return finalize_xml(spec.to_xml())
+    return finalize_xml(spec.to_xml(), hang_z)
 
 
-def finalize_xml(xml: str) -> str:
+REF_JOINT_ACT = [0.4, -0.1, -1.5, 1.0, -1.3, -0.4, 0.1, 1.5, -1.0, 1.3]
+
+
+def finalize_xml(xml: str, hang_z: float | None) -> str:
     """Inject floor texture/material + light into the generated MJCF.
 
     MjSpec.from_file(URDF) won't keep textures added via add_texture; the
     compile pass drops them silently. We inject them as text instead.
+
+    For the hung variant we also:
+      * pump joint damping × 6 so legs settle quickly under gravity
+        (URDF damping is sized for the deployed policy, far too low for a
+        passive observation scene).
+      * add a <keyframe name="home"> with qpos at the stand reference
+        pose, so initial joint angles aren't sitting AT range limits
+        (which causes constraint-solver bounce on the first few ticks).
     """
     asset_inject = (
         '    <texture name="floor_tex" type="2d" builtin="checker" '
@@ -137,6 +148,20 @@ def finalize_xml(xml: str) -> str:
         r'\1 material="floor_mat"',
         xml,
     )
+    if hang_z is not None:
+        # Crank damping up so zero-torque mode '1' settles in <1 s instead of
+        # ringing for 5+ s. Real robots have far more damping from cables /
+        # harness / air than the URDF declares; this just approximates that.
+        xml = re.sub(r'damping="([\d.]+)"',
+                     lambda m: f'damping="{float(m.group(1)) * 6:.2f}"', xml)
+        # Add a <keyframe> with qpos at the stand reference pose. Loading
+        # this keyframe at startup puts joints away from their range limits
+        # so the soft limit constraint doesn't fire on the first tick.
+        qpos_str = " ".join(f"{v:.3f}" for v in REF_JOINT_ACT)
+        kf_block = (f'  <keyframe>\n'
+                    f'    <key name="home" qpos="{qpos_str}"/>\n'
+                    f'  </keyframe>\n')
+        xml = xml.replace("</mujoco>\n", kf_block + "</mujoco>\n", 1)
     # Add a key light at the top of worldbody.
     light_inject = (
         '    <light pos="1 -1 3" dir="-0.3 0.3 -1" '

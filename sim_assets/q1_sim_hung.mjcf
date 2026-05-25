@@ -21,23 +21,23 @@
     <geom type="mesh" rgba="0.5 0.5 0.93 1" mesh="base_link"/>
     <body name="hip_yaw_l" pos="0 0.055 0" quat="0.980067 0 0 0.198669">
       <inertial pos="0.001558 0.000796 -0.10656" quat="0.999887 0.0135308 -0.0063304 0.00138268" mass="0.73407" diaginertia="0.00109609 0.000691105 0.000543803"/>
-      <joint name="hip_yaw_l" pos="0 0 0" axis="0 0 -1" range="-0.1 0.7" actuatorfrcrange="-20 20" damping="1" frictionloss="0.01"/>
+      <joint name="hip_yaw_l" pos="0 0 0" axis="0 0 -1" range="-0.1 0.7" actuatorfrcrange="-20 20" damping="6.00" frictionloss="0.01"/>
       <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_yaw_l"/>
       <body name="hip_roll_l" pos="0 0.054 -0.1073">
         <inertial pos="0.028723 -0.018625 1.5e-05" quat="0.704582 0.704582 0.0597045 0.0597045" mass="0.072409" diaginertia="0.000150731 0.000112 5.42688e-05"/>
-        <joint name="hip_roll_l" pos="0 0 0" axis="1 0 0" range="-0.3 0.6" actuatorfrcrange="-60 60" damping="1" frictionloss="0.07"/>
+        <joint name="hip_roll_l" pos="0 0 0" axis="1 0 0" range="-0.3 0.6" actuatorfrcrange="-60 60" damping="6.00" frictionloss="0.07"/>
         <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_roll_l"/>
         <body name="hip_pitch_l" pos="0.0165 0.028 0" quat="0.731689 0 0.681639 0">
           <inertial pos="-0.040715 0.019181 -0.04067" quat="0.652202 0.271221 0.271606 0.653683" mass="1.4071" diaginertia="0.00653101 0.00572153 0.00111546"/>
-          <joint name="hip_pitch_l" pos="0 0 0" axis="0 1 0" range="-2.1 0" actuatorfrcrange="-20 20" damping="0.4" frictionloss="0.03"/>
+          <joint name="hip_pitch_l" pos="0 0 0" axis="0 1 0" range="-2.1 0" actuatorfrcrange="-20 20" damping="2.40" frictionloss="0.03"/>
           <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_pitch_l"/>
           <body name="knee_pitch_l" pos="-0.081317 -0.0003 -0.081317" quat="0.865324 0 0.501213 0">
             <inertial pos="0.048081 0.002331 -0.13228" quat="0.692133 -0.102953 -0.142857 0.69996" mass="0.76749" diaginertia="0.0018563 0.00143577 0.000554927"/>
-            <joint name="knee_pitch_l" pos="0 0 0" axis="0 -1 0" range="0 2.1" actuatorfrcrange="-20 20" damping="1" frictionloss="0.01"/>
+            <joint name="knee_pitch_l" pos="0 0 0" axis="0 -1 0" range="0 2.1" actuatorfrcrange="-20 20" damping="6.00" frictionloss="0.01"/>
             <geom type="mesh" rgba="0.7 0.7 1 1" mesh="knee_pitch_l"/>
             <body name="ankle_pitch_l" pos="0.053013 0.0228 -0.14565" quat="0.819648 0 0.572867 0">
               <inertial pos="0.013735 -0.006344 -0.045775" quat="0.562412 0.442553 0.553176 0.426422" mass="0.2038" diaginertia="0.000663378 0.000494908 0.000224714"/>
-              <joint name="ankle_pitch_l" pos="0 0 0" axis="0 1 0" range="-2.5 0" actuatorfrcrange="-20 20" damping="0.8" frictionloss="0.01"/>
+              <joint name="ankle_pitch_l" pos="0 0 0" axis="0 1 0" range="-2.5 0" actuatorfrcrange="-20 20" damping="4.80" frictionloss="0.01"/>
               <geom size="0.055 0.01 0.01" pos="0.005 -0.012 -0.084" type="box" rgba="0.5 0.5 0.93 1"/>
             </body>
           </body>
@@ -46,23 +46,23 @@
     </body>
     <body name="hip_yaw_r" pos="0 -0.055 0" quat="0.980067 0 0 -0.198669">
       <inertial pos="0.001558 -0.000796 -0.10656" quat="0.999887 -0.0135308 -0.0063304 -0.00138268" mass="0.73407" diaginertia="0.00109609 0.000691105 0.000543803"/>
-      <joint name="hip_yaw_r" pos="0 0 0" axis="0 0 -1" range="-0.7 0.1" actuatorfrcrange="-20 20" damping="1" frictionloss="0.01"/>
+      <joint name="hip_yaw_r" pos="0 0 0" axis="0 0 -1" range="-0.7 0.1" actuatorfrcrange="-20 20" damping="6.00" frictionloss="0.01"/>
       <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_yaw_r"/>
       <body name="hip_roll_r" pos="0 -0.054 -0.1073">
         <inertial pos="0.028723 0.018625 1.5e-05" quat="0.704582 0.704582 -0.0597045 -0.0597045" mass="0.072409" diaginertia="0.000150731 0.000112 5.42688e-05"/>
-        <joint name="hip_roll_r" pos="0 0 0" axis="1 0 0" range="-0.6 0.3" actuatorfrcrange="-60 60" damping="1" frictionloss="0.07"/>
+        <joint name="hip_roll_r" pos="0 0 0" axis="1 0 0" range="-0.6 0.3" actuatorfrcrange="-60 60" damping="6.00" frictionloss="0.07"/>
         <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_roll_r"/>
         <body name="hip_pitch_r" pos="0.0165 -0.028 0" quat="0.731689 0 0.681639 0">
           <inertial pos="-0.040715 -0.019181 -0.04067" quat="0.653683 0.271606 0.271221 0.652202" mass="1.4071" diaginertia="0.00653101 0.00572153 0.00111546"/>
-          <joint name="hip_pitch_r" pos="0 0 0" axis="0 -1 0" range="0 2.1" actuatorfrcrange="-20 20" damping="0.4" frictionloss="0.03"/>
+          <joint name="hip_pitch_r" pos="0 0 0" axis="0 -1 0" range="0 2.1" actuatorfrcrange="-20 20" damping="2.40" frictionloss="0.03"/>
           <geom type="mesh" rgba="0.7 0.7 1 1" mesh="hip_pitch_r"/>
           <body name="knee_pitch_r" pos="-0.081317 0.0003 -0.081317" quat="0.865324 0 0.501213 0">
             <inertial pos="0.048081 -0.002331 -0.13228" quat="0.69996 -0.142857 -0.102953 0.692133" mass="0.76749" diaginertia="0.0018563 0.00143577 0.000554927"/>
-            <joint name="knee_pitch_r" pos="0 0 0" axis="0 1 0" range="-2.1 0" actuatorfrcrange="-20 20" damping="1" frictionloss="0.01"/>
+            <joint name="knee_pitch_r" pos="0 0 0" axis="0 1 0" range="-2.1 0" actuatorfrcrange="-20 20" damping="6.00" frictionloss="0.01"/>
             <geom type="mesh" rgba="0.7 0.7 1 1" mesh="knee_pitch_r"/>
             <body name="ankle_pitch_r" pos="0.053013 -0.0228 -0.14565" quat="0.819648 0 0.572867 0">
               <inertial pos="0.013735 0.006344 -0.045775" quat="0.426422 0.553176 0.442553 0.562412" mass="0.2038" diaginertia="0.000663378 0.000494908 0.000224714"/>
-              <joint name="ankle_pitch_r" pos="0 0 0" axis="0 -1 0" range="0 2.5" actuatorfrcrange="-20 20" damping="0.8" frictionloss="0.01"/>
+              <joint name="ankle_pitch_r" pos="0 0 0" axis="0 -1 0" range="0 2.5" actuatorfrcrange="-20 20" damping="4.80" frictionloss="0.01"/>
               <geom size="0.055 0.01 0.01" pos="0.005 0.012 -0.084" type="box" rgba="0.5 0.5 0.93 1"/>
             </body>
           </body>
@@ -83,4 +83,7 @@
     <general name="act_knee_pitch_r" joint="knee_pitch_r" forcerange="-30 30"/>
     <general name="act_ankle_pitch_r" joint="ankle_pitch_r" forcerange="-30 30"/>
   </actuator>
+  <keyframe>
+    <key name="home" qpos="0.400 -0.100 -1.500 1.000 -1.300 -0.400 0.100 1.500 -1.000 1.300"/>
+  </keyframe>
 </mujoco>
