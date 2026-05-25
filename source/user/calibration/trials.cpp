@@ -142,20 +142,22 @@ std::vector<Trial> build_default_plan(
 }
 
 std::vector<Trial> build_quick_plan(int joint_index) {
-    // Quick sanity plan: one Sine trial that exercises the joint immediately
-    // (Step has a 1 s settle window that swallows short runs). Used for
-    // binary-works-in-sim smoke testing.
+    // Quick sanity plan: one big visible sine on the knee.
+    // Knee gives the largest visual motion (lower leg swings). 0.3 rad amp
+    // at 0.5 Hz is the rough max amplitude that fits inside the knee's
+    // [0, 2.1] range from the MGTO crouch (q≈1.4) without saturating.
+    // Used for binary-works-in-sim smoke testing — visible in the viewer.
     std::vector<Trial> out;
     Trial t;
-    t.joint = joint_index;
+    t.joint = (joint_index == 0) ? 3 : joint_index;   // default = knee_l
     t.test = TestKind::Sine;
-    t.kp = 30.f;
-    t.kd = 1.0f;
-    t.amp = 0.05f;          // very small motion — safe in sim and on bench
-    t.freq_hz = 1.0f;       // 1 Hz
+    t.kp = 45.f;        // matches training-side QMINI_STIFFNESS for knee
+    t.kd = 1.5f;
+    t.amp = 0.3f;       // ±17° at the knee — unmistakable
+    t.freq_hz = 0.5f;   // slow enough to track cleanly
     t.pose_id = 0;
-    t.label = "B_kp30_kd1.0_sine_1.00Hz_quick";
-    t.duration_s = 2.0;     // 2 periods at 1 Hz
+    t.label = "B_kp45_kd1.5_sine_0.50Hz_quick";
+    t.duration_s = 4.0; // 2 full periods
     out.push_back(t);
     return out;
 }
