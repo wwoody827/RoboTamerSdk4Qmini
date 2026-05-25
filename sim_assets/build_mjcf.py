@@ -162,11 +162,10 @@ def finalize_xml(xml: str, hang_z: float | None) -> str:
             r'\1 contype="0" conaffinity="0"/>',
             xml,
         )
-        # Modest damping boost (3× URDF) — without the self-collision
-        # explosion the system is well-behaved at the URDF default; 3× is
-        # just to mimic the cable/harness drag a real robot has.
-        xml = re.sub(r'damping="([\d.]+)"',
-                     lambda m: f'damping="{float(m.group(1)) * 3:.2f}"', xml)
+        # URDF damping (0.4-1.0 N·m·s/rad) is kept as-is. With self-collision
+        # disabled (above), zero-ctrl qvel settles to <0.2 rad/s within 0.5 s
+        # and full rest by 2 s. The earlier 3× / 30× boosts were masking the
+        # self-collision bug; no longer needed.
         # Add a <keyframe> with qpos at the stand reference pose. Loading
         # this keyframe at startup puts joints away from their range limits
         # so the soft limit constraint doesn't fire on the first tick.
