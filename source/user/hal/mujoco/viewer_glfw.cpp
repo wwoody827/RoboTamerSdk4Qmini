@@ -124,9 +124,16 @@ void Viewer::thread_main() {
 
     CamState cam{};
     mjv_defaultCamera(&cam.cam);
-    cam.cam.distance = 2.0;
-    cam.cam.elevation = -20.0;
+    cam.cam.distance = 2.5;
+    cam.cam.elevation = -15.0;
     cam.cam.azimuth = 135.0;
+    // Aim at the robot's mid-body height — works for both the free-fall MJCF
+    // (base ≈ 0.85) and the hung MJCF (base = 1.0). MuJoCo's auto-lookat is
+    // (0,0,0) which sits below the floor for the hung variant, making the
+    // robot appear "underground" from this angle.
+    cam.cam.lookat[0] = 0.0;
+    cam.cam.lookat[1] = 0.0;
+    cam.cam.lookat[2] = 0.6;
     mjv_defaultOption(&cam.opt);
     mjv_defaultScene(&cam.scene);
     mjv_makeScene(m, &cam.scene, 2000);
