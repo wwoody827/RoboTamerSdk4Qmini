@@ -37,6 +37,8 @@ int main(int argc, char** argv) {
             std::string m = argv[++i];
             if (m.empty()) { std::cerr << "--initial-mode needs a char\n"; return 2; }
             opts.initial_mode = m[0];
+        } else if (a == "--stand-duration" && i + 1 < argc) {
+            opts.stand_duration = std::stof(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

@@ -148,7 +148,7 @@ void QminiApp::mode_tick() {
 
 void QminiApp::control_tick() {
     relative_time_ += control_dt_;
-    const float ratio = std::min(relative_time_ / kMoveDuration, 1.f);
+    const float ratio = std::min(relative_time_ / opts_.stand_duration, 1.f);
 
     rl_->update_motor_state(motor_->read());
     rl_->update_base_state(imu_->read());

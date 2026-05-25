@@ -26,6 +26,7 @@ public:
         float stand_kp_scale = 1.f;               // see RLController docs
         float stand_kd_scale = 1.f;
         char  initial_mode = '1';                 // FSM mode at startup
+        float stand_duration = 2.f;               // seconds to ramp init→ref
     };
 
     explicit QminiApp(Options opts);
@@ -66,7 +67,6 @@ private:
     char selected_mode_ = '1';
     float relative_time_  = 0.f;
     float control_dt_     = 0.01f;
-    static constexpr float kMoveDuration = 5.f;
 
     std::atomic<bool> stop_flag_{false};
     std::unique_ptr<hal::IRecurrentThread> control_thread_;
