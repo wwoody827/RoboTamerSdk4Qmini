@@ -75,6 +75,9 @@ private:
     std::unique_ptr<hal::IRecurrentThread> control_thread_;
     std::unique_ptr<hal::IRecurrentThread> mode_thread_;
     std::unique_ptr<hal::IRecurrentThread> report_thread_;
+
+    int last_hat0_ = 0;          // edge-detect [ / ] presses
+    int sin_joint_now_ = -2;     // last applied sin_joint_idx (-2 = haven't overridden yet)
 };
 
 }  // namespace qmini

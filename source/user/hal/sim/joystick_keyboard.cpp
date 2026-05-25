@@ -75,6 +75,12 @@ public:
                 frame_.button[i] = 0;
             }
         }
+        for (int i = 0; i < 2; ++i) {
+            if (frame_.hat[i] != 0 &&
+                now - hat_set_at_[i] > std::chrono::milliseconds(kPulseMs)) {
+                frame_.hat[i] = 0;
+            }
+        }
         JoystickFrame out = frame_;
         out.valid = true;
         return out;
@@ -115,6 +121,8 @@ private:
                     for (float& a : frame_.axis) a = 0.f;
                     label = "reset";
                     break;
+                case '[': frame_.hat[0] = -1; hat_set_at_[0] = now; label = "sin_joint--"; break;
+                case ']': frame_.hat[0] = +1; hat_set_at_[0] = now; label = "sin_joint++"; break;
                 case '1': button_idx = 9; label = "fold";        break;
                 case '2': button_idx = 0; label = "stand";       break;
                 case '3': button_idx = 3; label = "walk";        break;
@@ -147,6 +155,7 @@ private:
     std::mutex mu_;
     JoystickFrame frame_;
     clk::time_point button_set_at_[10]{};
+    clk::time_point hat_set_at_[2]{};
     termios orig_{};
     bool tty_ok_ = false;
     std::atomic<bool> running_{false};

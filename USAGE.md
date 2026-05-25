@@ -121,6 +121,7 @@ button press; you won't see what you type (raw mode, no echo).
 | `a` / `d` | `cmd_vy` ± 0.1 m/s |
 | `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
 | `r` / space | reset command axes to zero |
+| `[` / `]` | in mode `5`, cycle to prev/next sin-test joint live (no restart). Wraps `9` → `-1` (all). |
 
 Each consumed key echoes a short tag on its own line, e.g.:
 
