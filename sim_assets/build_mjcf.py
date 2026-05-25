@@ -59,21 +59,22 @@ def build_mjcf(hang_z: float | None) -> str:
 
     # Root placement.
     # - Free-fall variant (default): add a free joint so the robot has all
-    #   6 DOFs and can fall under gravity.
-    # - Hung variant (--hang Z): DON'T add a freejoint. base_link is then
-    #   rigidly attached to its parent (worldbody) at body.pos = (0,0,Z).
-    #   The leg joints below still articulate; the torso stays put.
-    #   No equality-constraint solver involved — far more robust than weld
-    #   (weld + free joint + world body fights the integrator at t=0 and
-    #   ejects the robot upward in MuJoCo 3.8.x).
+    #   6 DOFs and can fall under gravity. base_link spawns at z=0.85.
+    # - Hung variant (--hang Z): DON'T add a freejoint. MjSpec's compile
+    #   pass then absorbs base_link into worldbody (no DOFs → fused), so
+    #   any base_link.pos override is dropped. Instead we leave base_link
+    #   at the origin and move the FLOOR down to z=-Z. From the user's
+    #   POV the robot's body sits Z metres above the floor.
     root = spec.body("base_link")
     if root is None:
         sys.exit("base_link not found")
     if hang_z is None:
         root.add_freejoint(name="root")
         root.pos = [0.0, 0.0, 0.85]
+        floor_z = 0.0
     else:
-        root.pos = [0.0, 0.0, hang_z]
+        # No freejoint → base_link gets fused to world at body.pos = (0,0,0).
+        floor_z = -hang_z
 
     # Floor geom (we'll post-process the XML to attach a material/texture —
     # MjSpec drops textures added after a URDF-loaded compile, so we inject
@@ -82,7 +83,7 @@ def build_mjcf(hang_z: float | None) -> str:
         name="floor",
         type=mujoco.mjtGeom.mjGEOM_PLANE,
         size=[5.0, 5.0, 0.1],
-        pos=[0.0, 0.0, 0.0],
+        pos=[0.0, 0.0, floor_z],
         rgba=[0.7, 0.7, 0.75, 1.0],
         condim=3,
         friction=[1.0, 0.005, 0.0001],
@@ -127,10 +128,14 @@ def finalize_xml(xml: str) -> str:
         'texrepeat="5 5" texuniform="true" reflectance="0.1"/>\n'
     )
     xml = xml.replace("<asset>\n", "<asset>\n" + asset_inject, 1)
-    # Reference the material on the floor geom.
-    xml = xml.replace(
-        '<geom name="floor" size="5 5 0.1" type="plane" rgba="0.7 0.7 0.75 1"/>',
-        '<geom name="floor" size="5 5 0.1" type="plane" material="floor_mat"/>',
+    # Reference the material on the floor geom: swap rgba=... → material=...
+    # without assuming the position of other attributes (pos/size/type can
+    # appear in any order).
+    import re
+    xml = re.sub(
+        r'(<geom name="floor"[^/]*?) rgba="[^"]*"',
+        r'\1 material="floor_mat"',
+        xml,
     )
     # Add a key light at the top of worldbody.
     light_inject = (
