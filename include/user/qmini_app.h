@@ -23,6 +23,8 @@ public:
         bool enable_logging = true;
         bool start_threads = true;                // false → caller drives ticks
         bool enable_viewer = true;                // mujoco backend live viewer
+        float stand_kp_scale = 1.f;               // see RLController docs
+        float stand_kd_scale = 1.f;
     };
 
     explicit QminiApp(Options opts);

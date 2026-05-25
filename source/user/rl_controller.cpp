@@ -239,6 +239,9 @@ hal::MotorCmdFrame RLController::to_motor_cmd(char mode) const {
         } else if (mode == '1') {
             f.kp[i] = kp_soft_[i];
             f.kd[i] = kd_soft_[i];
+        } else if (mode == '2') {
+            f.kp[i] = kp_[i] * stand_kp_scale_;
+            f.kd[i] = kd_[i] * stand_kd_scale_;
         } else {
             f.kp[i] = kp_[i];
             f.kd[i] = kd_[i];

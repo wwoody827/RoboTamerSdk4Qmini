@@ -55,6 +55,12 @@ public:
     // Tunables / inputs visible to outer scope.
     void set_task_mode(int m) { task_mode_ = m; }
     int  task_mode() const     { return task_mode_; }
+    // Scale applied to kp / kd when the controller emits a "stand" frame
+    // (mode '2'). 1.0 = use config.yaml values as-is. >1 useful when
+    // observing in sim where the deployed-policy-sized gains can't drive
+    // the joints against gravity in a visible way.
+    void set_stand_kp_scale(float s) { stand_kp_scale_ = s; }
+    void set_stand_kd_scale(float s) { stand_kd_scale_ = s; }
 
     // Public telemetry (read-only views — held with the controller's lifetime).
     const Vec10<float>& joint_pos()       const { return joint_pos_; }
@@ -96,6 +102,8 @@ private:
     float rl_time_step_ = 0.01f;
     float record_yaw_ = 0.f;
     float static_flag_ = 0.f;
+    float stand_kp_scale_ = 1.f;
+    float stand_kd_scale_ = 1.f;
 
     Vec10<float> joint_pos_, joint_vel_, joint_tau_, joint_acc_;
     Vec10<float> joint_act_, init_joint_act_;

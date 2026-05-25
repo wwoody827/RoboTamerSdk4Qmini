@@ -29,6 +29,10 @@ int main(int argc, char** argv) {
             opts.policy_path = argv[++i];
         } else if (a == "--mjcf" && i + 1 < argc) {
             opts.hw.mjcf_path = argv[++i];
+        } else if (a == "--stand-kp-scale" && i + 1 < argc) {
+            opts.stand_kp_scale = std::stof(argv[++i]);
+        } else if (a == "--stand-kd-scale" && i + 1 < argc) {
+            opts.stand_kd_scale = std::stof(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << a << "\n";
             return 2;

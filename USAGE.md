@@ -98,6 +98,8 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
 | `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
 | `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
+| `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
+| `--stand-kd-scale N` | Same as above for `kd`. Default 1.0. |
 
 ### Controls (desktop default — stdin joystick, raw mode, no echo)
 
@@ -142,13 +144,22 @@ Then pass it via `--mjcf`:
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 ../../bin/run_interface --no-onnx --no-log \
-    --mjcf ../../sim_assets/q1_sim_hung.mjcf
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf \
+    --stand-kp-scale 30
 ```
 
-The torso stays at z=1 m and can rotate freely (pendulum-style). The
-legs swing naturally — great for sanity-checking actions without the
-robot face-planting. Remove `--mjcf` (or rebake without `--hang`) when
-testing a real trained policy.
+The torso is **welded** (6-DOF rigid pin) at z=1 m, so it stays
+upright without oscillating. The legs swing naturally below — great
+for sanity-checking actions without the robot face-planting.
+
+`--stand-kp-scale 30` is the boost that makes pressing `2` (stand)
+actually drive the legs to the reference pose. Without it, the
+config `kp` values (sized for the deployed policy on the real robot)
+are too weak to move the joints against gravity at visible speed in
+sim. Tune to taste; 30× is enough for snappy stand, 100× looks twitchy.
+
+Remove `--mjcf` (or rebake without `--hang`) when testing a real
+trained policy — the policy was trained with the free-fall MJCF.
 
 ### About `--keyboard`
 

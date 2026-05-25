@@ -51,6 +51,8 @@ QminiApp::QminiApp(Options opts)
     }
     rl_ = std::make_unique<RLController>(cfg_, std::move(policy));
     rl_->init();
+    rl_->set_stand_kp_scale(opts_.stand_kp_scale);
+    rl_->set_stand_kd_scale(opts_.stand_kd_scale);
 
     if (opts_.enable_logging) {
         reporter_.init(true, true);
