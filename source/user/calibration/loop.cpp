@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <thread>
 #include <vector>
@@ -183,6 +184,13 @@ std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan) {
         int  consecutive_overspeed = 0;
         std::string trial_result = "ok";
 
+        // Rate watchdog: per spec §6 / §5, abort if achieved rate drops below
+        // 90 % of the requested rate for more than 500 ms.
+        std::deque<double> recent_ts;  // tick timestamps in the last 0.5 s
+        double slow_since_s = -1.0;    // -1 = not currently slow
+        const double rate_window_s = 0.5;
+        const double rate_min_frac = 0.9;
+
         while (clk::now() < trial_end && !stop_requested_) {
             double t = std::chrono::duration<double>(clk::now() - trial_start).count();
 
@@ -195,7 +203,7 @@ std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan) {
 
             buf.push_row(t, cmd, st, base);
 
-            // Watchdog
+            // dq watchdog
             bool over = false;
             for (int i = 0; i < kNumJoints; ++i) {
                 if (std::fabs(st.dq[i]) > opts_.safe_dq_max) { over = true; break; }
@@ -212,6 +220,34 @@ std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan) {
                 }
             } else {
                 consecutive_overspeed = 0;
+            }
+
+            // Rate watchdog (after one full window is buffered).
+            recent_ts.push_back(t);
+            while (!recent_ts.empty() && recent_ts.front() < t - rate_window_s) {
+                recent_ts.pop_front();
+            }
+            if (t >= rate_window_s) {
+                const double expected = opts_.tick_hz * rate_window_s;
+                const double actual   = static_cast<double>(recent_ts.size());
+                const bool   is_slow  = actual < rate_min_frac * expected;
+                if (is_slow) {
+                    if (slow_since_s < 0) {
+                        slow_since_s = t;
+                    } else if (t - slow_since_s > rate_window_s) {
+                        trial_result = "aborted_slow_rate";
+                        if (opts_.verbose) {
+                            double inst_hz = actual / rate_window_s;
+                            std::printf("[calib]   rate watchdog: %.1f Hz < %.0f%% of %.1f Hz "
+                                        "for >%.0f ms\n",
+                                        inst_hz, rate_min_frac * 100, opts_.tick_hz,
+                                        rate_window_s * 1000);
+                        }
+                        break;
+                    }
+                } else {
+                    slow_since_s = -1.0;
+                }
             }
 
             next += std::chrono::microseconds(period_us);

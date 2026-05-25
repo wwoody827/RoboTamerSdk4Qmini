@@ -54,7 +54,10 @@ void print_usage(const char* prog) {
         "  --joints N,N,...        Which joints to run (default: all 10).\n"
         "  --output-root <path>    Output root (default: data/pd_calibration).\n"
         "  --label <str>           Run label suffix (default: initial).\n"
-        "  --tick-hz <hz>          Control rate (default: 200).\n"
+        "  --tick-hz <hz>          Override control rate. Default is 1/control_dt\n"
+        "                          from config.yaml (the deploy rate). Override\n"
+        "                          prints a banner warning — the fitted PD model\n"
+        "                          will be rate-specific.\n"
         "  --no-imu                Skip IMU backend (set imu_* fields to NaN).\n"
         "  --iface <name>          Network iface (hardware backend only).\n"
         "  --operator <str>        Operator name for run_meta.json.\n"
@@ -111,12 +114,18 @@ void write_manifest(const fs::path& run_dir,
                     const std::string& run_id,
                     const std::array<float, qmini::calib::kNumJoints>& mgto,
                     const std::vector<Trial>& plan,
-                    const std::vector<TrialResult>& results) {
+                    const std::vector<TrialResult>& results,
+                    double tick_hz_requested,
+                    double deploy_hz,
+                    bool tick_hz_overridden) {
     std::ofstream f(run_dir / "manifest.json");
     f << "{\n";
     f << "  \"run_id\": \"" << json_escape(run_id) << "\",\n";
     f << "  \"robot\": \"Qmini Q1\",\n";
     f << "  \"sdk_commit\": \"" << json_escape(git_head_sha()) << "\",\n";
+    f << "  \"tick_hz_requested\": " << tick_hz_requested << ",\n";
+    f << "  \"deploy_hz\": " << deploy_hz << ",\n";
+    f << "  \"tick_hz_overridden\": " << (tick_hz_overridden ? "true" : "false") << ",\n";
     f << "  \"joint_names\": [";
     for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
         f << "\"" << qmini::calib::kJointNames[i] << "\"";
@@ -183,7 +192,8 @@ int main(int argc, char** argv) {
     std::string joints_str;
     std::string output_root = "data/pd_calibration";
     std::string label = "initial";
-    double tick_hz = 200.0;
+    double tick_hz = -1.0;          // -1 sentinel → mirror 1/control_dt
+    bool   tick_hz_overridden = false;
     std::string iface = "eth0";
     std::string operator_name;
     std::string notes;
@@ -205,7 +215,10 @@ int main(int argc, char** argv) {
         else if (a == "--joints")   joints_str = next("--joints");
         else if (a == "--output-root") output_root = next("--output-root");
         else if (a == "--label")    label = next("--label");
-        else if (a == "--tick-hz")  tick_hz = std::atof(next("--tick-hz"));
+        else if (a == "--tick-hz") {
+            tick_hz = std::atof(next("--tick-hz"));
+            tick_hz_overridden = true;
+        }
         else if (a == "--iface")    iface = next("--iface");
         else if (a == "--operator") operator_name = next("--operator");
         else if (a == "--notes")    notes = next("--notes");
@@ -237,6 +250,22 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "config.yaml ref_joint_act has only %zu entries (need 10)\n",
                      cfg.ref_joint_act.size());
         return 1;
+    }
+
+    // Resolve tick rate: default mirrors 1 / control_dt (the deploy rate);
+    // explicit --tick-hz overrides but triggers a banner warning per spec §5.
+    const double deploy_hz = (cfg.control_dt > 0.f) ? 1.0 / cfg.control_dt : 200.0;
+    if (!tick_hz_overridden) {
+        tick_hz = deploy_hz;
+    } else {
+        std::printf(
+            "\n"
+            "  *** WARNING: tick rate overridden to %.2f Hz. Deploy uses %.2f Hz from config.\n"
+            "  *** The fitted PD model will be for %.2f Hz; applying it to a %.2f Hz sim/deploy\n"
+            "  *** will introduce a discretization mismatch. Use the default rate unless you\n"
+            "  *** are specifically characterizing rate-dependent behaviour.\n"
+            "\n",
+            tick_hz, deploy_hz, tick_hz, deploy_hz);
     }
     for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
         mgto.q_target[i] = cfg.ref_joint_act[i];
@@ -292,6 +321,8 @@ int main(int argc, char** argv) {
     log_file << "[calib] sdk_commit=" << git_head_sha() << "\n";
     log_file << "[calib] tests=" << tests
              << " tick_hz=" << tick_hz
+             << " deploy_hz=" << deploy_hz
+             << " tick_hz_overridden=" << (tick_hz_overridden ? "yes" : "no")
              << " quick=" << (quick ? "yes" : "no")
              << " plan_size=" << plan.size() << "\n";
     log_file.flush();
@@ -345,7 +376,8 @@ int main(int argc, char** argv) {
     motor->stop();
     if (imu) imu->stop();
 
-    write_manifest(run_dir, run_id, mgto.q_target, plan, results);
+    write_manifest(run_dir, run_id, mgto.q_target, plan, results,
+                   tick_hz, deploy_hz, tick_hz_overridden);
     write_run_meta(run_dir, run_id, operator_name, notes, harness_checked);
 
     int n_ok = 0, n_abort = 0;

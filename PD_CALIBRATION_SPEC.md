@@ -118,8 +118,28 @@ The operator must complete these steps before invoking the tool:
 
 All tests run **one joint at a time**. While joint `j` is moving, all other
 joints are held with `kp = kp_hold` (default 80) and `kd = kd_hold` (default 2)
-at their MGTO target. Update rate = 200 Hz (matches the existing SDK loop;
-adjust if `IClock` reports otherwise).
+at their MGTO target.
+
+**Tick rate**: the tool MUST default to `1 / control_dt` read from the SDK's
+config (currently `control_dt = 0.015 s` → 66.67 Hz). This is the rate the
+deployed policy runs at. Calibrating at a different rate produces a
+discrete-time PD model that doesn't match what the policy actually
+experiences at deploy.
+
+The tool MAY accept a `--tick-hz <Hz>` override for diagnostic comparisons.
+When override is used, print a banner-level warning to stdout:
+
+```text
+WARNING: tick rate overridden to <X> Hz. Deploy uses <Y> Hz from config.
+The fitted PD model will be for <X> Hz; applying it to a <Y> Hz sim/deploy
+will introduce a discretization mismatch. Use the default rate unless you
+are specifically characterizing rate-dependent behaviour.
+```
+
+Verify the actual achieved rate via `IClock::now()` deltas and log it per
+run. If the achieved rate drops below 90 % of the requested rate for more
+than 500 ms (indicating the hardware backend can't sustain it), abort the
+trial and surface a clear error.
 
 ### 5.1 Step Response (Test A)
 
@@ -282,8 +302,11 @@ if (imu) imu->stop();
 
 - Use **only** the existing `IMotorBackend`, `IIMUBackend`, `IClock` factories
   via `user/hal/factory.h`. Do not add new HAL methods.
-- Update rate **must** match the existing control rate. Determine the rate
-  from `IClock::now()` deltas, not hardcoded. Log the actual rate per run.
+- Tick rate defaults to `1 / control_dt` read from the SDK's config
+  (currently 66.67 Hz). `--tick-hz` override allowed but requires the
+  banner warning in §5. Verify via `IClock::now()` deltas, log the actual
+  achieved rate per run, and abort if it drops below 90 % of the requested
+  rate for >500 ms.
 - Always send the **whole 10-joint command frame**; do not partial-update.
   Joints not under test stay at hold gains and MGTO target.
 - After all trials, the final command must restore MGTO with hold gains and
@@ -589,9 +612,11 @@ the question back to the operator before writing code:
 - Does the harness allow the robot to settle at MGTO with the feet truly
   unloaded? If not, the fitted `kp_eff` will include some residual contact
   load and the gravity-gradient subtraction in §8.1 will be slightly off.
-- What is the actual control loop period the hardware backend supports? Spec
-  assumes 200 Hz; if the backend runs at a different rate, adjust trial
-  durations so each trial captures the intended number of cycles.
+- What is the actual sustained tick rate the hardware backend supports at
+  the default 66.67 Hz? It should be trivial since serial loop typically
+  runs > 500 Hz. If for some reason the backend can't sustain 66.67 Hz
+  (e.g. serial port latency), surface the issue and either degrade
+  gracefully (lower rate, longer trials) or stop and report.
 - Is the IMU rigidly mounted in the torso? If it has any slop, body-rate
   measurements will be noisy. Spec uses IMU only as optional sanity input.
 - How accurate are the URDF inertials? The default fitting path (Y1) treats
