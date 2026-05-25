@@ -213,6 +213,26 @@ Quick mode is the smoke-test path — one joint, one 2 s sine. Use it
 to verify the binary runs against your backend before committing to
 the full sweep.
 
+### Dry-run in MuJoCo with the live viewer
+
+Before bringing the robot to a harness, rehearse the protocol in sim
+with the viewer up so you can see exactly what motion each trial
+commands:
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
+../../bin/pd_calibration_tool --i-have-checked-the-harness --quick \
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --viewer \
+    --output-root /tmp/cal_dryrun --label dryrun
+```
+
+`--mjcf` points at the hung MJCF (rigid torso, no foot contact —
+closest sim analogue of the harness setup the spec assumes).
+`--viewer` opens the same GLFW window as `run_interface`. Closing
+the window or Ctrl-C aborts cleanly. **Neither flag does anything
+on a hardware build** — they're sim-only, and the real-robot run
+shouldn't pass them.
+
 Full sweep is ~25 min, drives all 10 joints through Tests A (step)
 + B (sine sweep) + C (chirp):
 

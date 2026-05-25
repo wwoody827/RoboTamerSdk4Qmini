@@ -226,6 +226,8 @@ add_executable(pd_calibration_tool
 )
 target_link_libraries(pd_calibration_tool PRIVATE qmini_user)
 if (BACKEND STREQUAL "mujoco")
+    # Same private include for the viewer header as qmini_user uses.
+    target_include_directories(pd_calibration_tool PRIVATE ${MUJOCO_PRIVATE_INC})
     set_target_properties(pd_calibration_tool PROPERTIES
         BUILD_RPATH   "${MUJOCO_DIR}"
         INSTALL_RPATH "${MUJOCO_DIR}")

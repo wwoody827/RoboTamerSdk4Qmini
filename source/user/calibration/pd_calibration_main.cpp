@@ -30,6 +30,10 @@
 #include "user/hal/factory.h"
 #include "utils/config.h"
 
+#ifdef QMINI_HAVE_VIEWER
+#include "viewer.h"  // resolved via MUJOCO_PRIVATE_INC (mujoco backend only)
+#endif
+
 namespace fs = std::filesystem;
 using qmini::calib::Trial;
 using qmini::calib::TrialResult;
@@ -60,6 +64,13 @@ void print_usage(const char* prog) {
         "                          will be rate-specific.\n"
         "  --no-imu                Skip IMU backend (set imu_* fields to NaN).\n"
         "  --iface <name>          Network iface (hardware backend only).\n"
+        "  --mjcf <path>           MuJoCo backend: which MJCF to load\n"
+        "                          (default sim_assets/q1_sim.mjcf; pass\n"
+        "                          sim_assets/q1_sim_hung.mjcf to dry-run\n"
+        "                          the protocol with the robot pinned).\n"
+        "  --viewer                Open the live GLFW viewer (mujoco only).\n"
+        "                          Lets you watch the trial sequence before\n"
+        "                          trusting it on a real robot.\n"
         "  --operator <str>        Operator name for run_meta.json.\n"
         "  --notes <str>           Free-text notes for run_meta.json.\n"
         "  -h, --help              This help.\n",
@@ -195,6 +206,8 @@ int main(int argc, char** argv) {
     double tick_hz = -1.0;          // -1 sentinel → mirror 1/control_dt
     bool   tick_hz_overridden = false;
     std::string iface = "eth0";
+    std::string mjcf_path;
+    bool viewer = false;
     std::string operator_name;
     std::string notes;
 
@@ -220,6 +233,8 @@ int main(int argc, char** argv) {
             tick_hz_overridden = true;
         }
         else if (a == "--iface")    iface = next("--iface");
+        else if (a == "--mjcf")     mjcf_path = next("--mjcf");
+        else if (a == "--viewer")   viewer = true;
         else if (a == "--operator") operator_name = next("--operator");
         else if (a == "--notes")    notes = next("--notes");
         else {
@@ -330,6 +345,7 @@ int main(int argc, char** argv) {
     // HAL backends.
     qmini::hal::HardwareConfig hw;
     hw.network_interface = iface;
+    if (!mjcf_path.empty()) hw.mjcf_path = mjcf_path;
     for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
         hw.startq[i] = (i < static_cast<int>(cfg.startq.size())) ? cfg.startq[i] : 0.f;
     }
@@ -365,6 +381,20 @@ int main(int argc, char** argv) {
     std::signal(SIGINT,  handle_sigint);
     std::signal(SIGTERM, handle_sigint);
 
+    // Live viewer (mujoco backend only). Lets the operator watch the trial
+    // sequence in sim before trusting it on the real robot.
+    if (viewer) {
+#ifdef QMINI_HAVE_VIEWER
+        if (qmini::hal::mj::Viewer::instance().start()) {
+            std::printf("[calib] viewer window opened. Close it or hit Ctrl-C to abort.\n");
+        }
+#else
+        std::fprintf(stderr,
+            "[calib] --viewer requested but binary built without GLFW. "
+            "Re-build with libglfw3-dev installed.\n");
+#endif
+    }
+
     std::printf("[calib] run_id=%s plan=%zu trials, tick=%.1f Hz → %s\n",
                 run_id.c_str(), plan.size(), tick_hz,
                 run_dir.string().c_str());
@@ -373,6 +403,9 @@ int main(int argc, char** argv) {
     auto t_end = std::chrono::steady_clock::now();
     double elapsed = std::chrono::duration<double>(t_end - t_start).count();
 
+#ifdef QMINI_HAVE_VIEWER
+    if (viewer) qmini::hal::mj::Viewer::instance().stop();
+#endif
     motor->stop();
     if (imu) imu->stop();
 
