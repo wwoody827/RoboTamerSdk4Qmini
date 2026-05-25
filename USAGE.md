@@ -230,52 +230,37 @@ can't sustain the rate you asked for — lower `--tick-hz` and try again.
 
 ---
 
-## 7. Visualization — current state
+## 7. Live viewer (MuJoCo backend)
 
-> **The MuJoCo backend is headless today.** It ticks physics in
-> `mjModel`/`mjData` but doesn't open a viewer window. If you want to
-> see the robot move in real time, see the two options below.
+`run_interface` opens a GLFW window showing the robot in real time
+when built with `desktop-mujoco`. The viewer runs on its own thread
+(reads `qpos`/`qvel` from `World` under the world mutex, then renders
+at ~60 Hz) — physics ticks in the control thread are unaffected.
 
-### Option A — post-hoc replay (works today, no code changes)
+Mouse controls inside the window:
 
-Write the policy/calibration trajectory to disk, then replay it in
-the standalone Python viewer:
+| Input | Action |
+|---|---|
+| Left-drag | Rotate camera |
+| Right-drag | Pan camera |
+| Scroll | Zoom |
+| Shift + drag | Horizontal pan |
+| Close window | Sends stop flag to the app |
+
+Disable with `--no-viewer` if you want to run completely headless
+(e.g. over SSH without X-forwarding, or for benchmarking).
+
+Build requirement: `libglfw3-dev`. If `find_package(glfw3)` fails at
+configure time, CMake prints a notice and a no-op viewer stub is
+compiled instead — `run_interface` still works, just without a window.
 
 ```bash
-# Run the binary headlessly, with `--no-log` removed so general.txt/rl.txt
-# capture the state stream:
-cd tests/fixtures
-../../bin/run_interface --no-onnx --keyboard
-
-# Drop a small replay script alongside it:
-python3 -m mujoco.viewer --mjcf sim_assets/q1_sim.mjcf
-# (this opens an interactive view of the model, not the trajectory —
-# for trajectory replay, write a 30-line loader that reads bin/general.txt
-# and steps qpos by hand. We don't ship one yet.)
+sudo apt install libglfw3-dev      # if you don't have it
 ```
 
-For the calibration tool, a replay script that walks an `.npz` file
-back through `mujoco.viewer.launch_passive` is the cleanest fit; ~50
-LOC of Python. Not built yet.
-
-### Option B — add a viewer thread to the C++ backend (cleaner; a follow-up commit)
-
-The MuJoCo library that's already linked includes `mjrender` and a
-GLFW-based viewer (`simulate`). Wiring it in means:
-
-- Adding a `Viewer` class in `source/user/hal/mujoco/` that owns a
-  GLFW window, `mjvScene`, `mjrContext`.
-- Spawning a viewer thread alongside the existing control thread.
-- Mutex on `mjData` between the control thread (writes) and the viewer
-  thread (reads `qpos`/`qvel`).
-- New CMake dep: `find_package(glfw3)` (apt: `libglfw3-dev`).
-
-Roughly 200 LOC. The Python `mujoco.viewer.launch_passive(model, data)`
-shows what the API looks like — the C++ equivalent is in MuJoCo's
-[`sample/`](https://github.com/google-deepmind/mujoco/tree/main/sample)
-directory.
-
-Say the word and I'll add it.
+The calibration tool currently doesn't pop a viewer (no policy → no
+visualization). The `.npz` traces can be replayed afterwards in
+`python -m mujoco.viewer`.
 
 ---
 

@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "user/hal/types.h"
 
@@ -35,6 +36,18 @@ public:
 
     bool loaded() const { return model_ != nullptr; }
     double mj_dt() const;
+
+    // Render-side helpers. The viewer thread calls these to snapshot the
+    // scene without freezing the control loop.
+    //   take_render_snapshot copies qpos/qvel/time + a small bit of context
+    //   into the user-supplied buffers under the world mutex. Returns false
+    //   if the world isn't loaded yet.
+    bool take_render_snapshot(std::vector<double>& qpos,
+                              std::vector<double>& qvel,
+                              double& time);
+
+    // Public read-only accessors for the viewer.
+    const mjModel* model() const { return model_; }
 
 private:
     World() = default;

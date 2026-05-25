@@ -5,6 +5,10 @@
 #include <iostream>
 #include <thread>
 
+#ifdef QMINI_HAVE_VIEWER
+#include "viewer.h"  // resolved via MUJOCO_PRIVATE_INC (mujoco backend only)
+#endif
+
 namespace qmini {
 
 QminiApp::QminiApp(Options opts)
@@ -69,6 +73,12 @@ QminiApp::QminiApp(Options opts)
         }
     }
 
+#ifdef QMINI_HAVE_VIEWER
+    if (opts_.enable_viewer) {
+        hal::mj::Viewer::instance().start();
+    }
+#endif
+
     if (opts_.input_from_keyboard) {
         std::printf(
             "[qmini] keyboard mode: type a digit + Enter to switch mode\n"
@@ -87,6 +97,9 @@ QminiApp::~QminiApp() {
     control_thread_.reset();
     mode_thread_.reset();
     report_thread_.reset();
+#ifdef QMINI_HAVE_VIEWER
+    hal::mj::Viewer::instance().stop();
+#endif
     if (joystick_) joystick_->stop();
     if (imu_)      imu_->stop();
     if (motor_)    motor_->stop();
@@ -97,6 +110,12 @@ void QminiApp::run() {
     using namespace std::chrono_literals;
     while (!stop_flag_.load()) {
         std::this_thread::sleep_for(50ms);
+#ifdef QMINI_HAVE_VIEWER
+        if (hal::mj::Viewer::instance().should_close()) {
+            stop_flag_ = true;
+            break;
+        }
+#endif
     }
 }
 

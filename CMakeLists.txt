@@ -52,7 +52,8 @@ elseif (BACKEND STREQUAL "mujoco")
         source/user/hal/mujoco/motor_mujoco.cpp
         source/user/hal/mujoco/imu_mujoco.cpp
     )
-    # Private include dir so the three mujoco *.cpp can share world.h.
+    # Viewer source picked below based on GLFW availability.
+    # Private include dir so the mujoco *.cpp can share world.h / viewer.h.
     set(MUJOCO_PRIVATE_INC ${CMAKE_CURRENT_SOURCE_DIR}/source/user/hal/mujoco)
 elseif (BACKEND STREQUAL "hardware")
     list(APPEND USER_SOURCES
@@ -155,6 +156,22 @@ if (BACKEND STREQUAL "mujoco")
     set_target_properties(qmini_user PROPERTIES
         INSTALL_RPATH "${MUJOCO_DIR}"
         BUILD_RPATH   "${MUJOCO_DIR}")
+
+    # Live viewer: GLFW + mjr_render. Optional — if GLFW isn't found we
+    # compile the no-op stub so qmini_app links without ifdefs.
+    find_package(glfw3 QUIET)
+    if (TARGET glfw)
+        message(STATUS "MuJoCo viewer: GLFW found, building live viewer")
+        target_sources(qmini_user PRIVATE
+            source/user/hal/mujoco/viewer_glfw.cpp)
+        target_link_libraries(qmini_user PUBLIC glfw)
+        target_compile_definitions(qmini_user PUBLIC QMINI_HAVE_VIEWER=1)
+    else()
+        message(STATUS "MuJoCo viewer: GLFW not found — viewer disabled. "
+                       "apt install libglfw3-dev to enable.")
+        target_sources(qmini_user PRIVATE
+            source/user/hal/mujoco/viewer_stub.cpp)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

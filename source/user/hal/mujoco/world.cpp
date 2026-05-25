@@ -78,6 +78,17 @@ bool World::load(const std::string& mjcf_path) {
 
 double World::mj_dt() const { return model_ ? model_->opt.timestep : 0.002; }
 
+bool World::take_render_snapshot(std::vector<double>& qpos,
+                                 std::vector<double>& qvel,
+                                 double& time) {
+    std::lock_guard<std::mutex> g(mu_);
+    if (!model_ || !data_) return false;
+    qpos.assign(data_->qpos, data_->qpos + model_->nq);
+    qvel.assign(data_->qvel, data_->qvel + model_->nv);
+    time = data_->time;
+    return true;
+}
+
 void World::step_with_cmd(const MotorCmdFrame& cmd, int substeps) {
     std::lock_guard<std::mutex> g(mu_);
     if (!model_ || !data_) return;

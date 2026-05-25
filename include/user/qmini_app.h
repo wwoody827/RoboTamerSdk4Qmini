@@ -22,6 +22,7 @@ public:
         bool input_from_keyboard = false;         // dev: read mode from stdin
         bool enable_logging = true;
         bool start_threads = true;                // false → caller drives ticks
+        bool enable_viewer = true;                // mujoco backend live viewer
     };
 
     explicit QminiApp(Options opts);

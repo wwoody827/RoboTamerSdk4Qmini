@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
         if (a == "--no-onnx") opts.use_real_onnx = false;
         else if (a == "--keyboard") opts.input_from_keyboard = true;
         else if (a == "--no-log") opts.enable_logging = false;
+        else if (a == "--no-viewer") opts.enable_viewer = false;
         else if (a == "--iface" && i + 1 < argc) {
             opts.hw.network_interface = argv[++i];
         } else if (a == "--policy" && i + 1 < argc) {
