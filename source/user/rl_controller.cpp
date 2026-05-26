@@ -212,6 +212,16 @@ void RLController::stand_control(float ratio) {
     smooth_joint_action(ratio, ref_joint_act_);
 }
 
+void RLController::zero_pose_control(float ratio) {
+    // Same ramp as stand_control but the target is the URDF natural pose
+    // (q = 0 for every joint). After 'z' captures the operator-held pose
+    // as the new zero, mode '0' verifies that capture: PD-holds at zero
+    // and the robot should physically stay where it was at the moment of
+    // capture.
+    Vec10<float> zero = Vec10<float>::Zero();
+    smooth_joint_action(ratio, zero);
+}
+
 void RLController::sin_control(float amplitude, float f, float t) {
     // Single-joint sin test only — the "wiggle all 10 joints in sync"
     // mode was removed because it's unsafe on the real robot (every

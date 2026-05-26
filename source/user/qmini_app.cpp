@@ -2,8 +2,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <thread>
+
+#include <yaml-cpp/yaml.h>
 
 #ifdef QMINI_HAVE_VIEWER
 #include "viewer.h"  // resolved via MUJOCO_PRIVATE_INC (mujoco backend only)
@@ -31,6 +36,15 @@ QminiApp::QminiApp(Options opts)
 
     motor_->start();
     imu_->start();
+
+    // Dynamic zero offset: load from disk if present (sticky between runs),
+    // or capture now if --zero-on-start. Must come before the first read in
+    // reset() below so the controller's initial joint_pos is already on the
+    // adjusted frame.
+    load_dynamic_zero();
+    if (opts_.zero_on_start) {
+        capture_zero();
+    }
     // When --keyboard is set, ModeSwitcher::read_from_keyboard owns stdin.
     // Starting the sim KeyboardJoystick would put the TTY into raw mode and
     // drain stdin out from under the mode switcher → user keystrokes vanish.
@@ -98,7 +112,9 @@ QminiApp::QminiApp(Options opts)
             "[qmini] stdin joystick: press a key (no Enter), see [key →] echo\n"
             "        1=fold  2=stand  3=walk  5=sin  b=quit\n"
             "        w/s=vx+/-  a/d=vy+/-  q/e=yaw+/-  r/space=reset cmd\n"
-            "        in mode 5:  [ / ] = prev/next sin joint (0..9)\n");
+            "        in mode 5:  [ / ] = prev/next sin joint (0..9)\n"
+            "        zero:  z=capture current pose as zero (mode 1 only)\n"
+            "               h=toggle hold-zero (mode 0, PD targets q=0)\n");
     }
     std::fflush(stdout);
 }
@@ -172,13 +188,104 @@ void QminiApp::mode_tick() {
         std::fflush(stdout);
     }
     last_hat0_ = js.hat[0];
+
+    // Dynamic zero ops (hat[1] pulse):
+    //   +1 → 'z' key, capture current pose as zero (only safe in mode '1')
+    //   -1 → 'h' key, enter hold-zero mode ('0') / toggle back to '1'
+    if (js.hat[1] != 0 && last_hat1_ == 0) {
+        if (js.hat[1] > 0) {
+            if (current_mode_ == '1') {
+                capture_zero();
+            } else {
+                std::printf("[zero] ignored — press 1 (fold) first; "
+                            "re-zeroing under PD is unsafe\n");
+            }
+        } else {
+            if (current_mode_ == '0') {
+                std::printf("[zero] hold-zero → fold\n");
+                current_mode_ = selected_mode_ = '1';
+                relative_time_ = 0.f;
+                rl_->reset(true);
+            } else if (current_mode_ == '1' || current_mode_ == '2') {
+                std::printf("[zero] entering hold-zero (target q=0)\n");
+                current_mode_ = selected_mode_ = '0';
+                relative_time_ = 0.f;
+                rl_->reset(true);
+            } else {
+                std::printf("[zero] hold-zero only from mode 1 or 2\n");
+            }
+        }
+        std::fflush(stdout);
+    }
+    last_hat1_ = js.hat[1];
+}
+
+void QminiApp::capture_zero() {
+    auto state = motor_->read();
+    for (int i = 0; i < 10; ++i) {
+        // state.q is already adjusted by hardware startq AND any previous
+        // dynamic_zero (because control_tick subtracts dynamic_zero before
+        // publishing). Capturing state.q here REPLACES the offset — next
+        // tick state.q will read 0 at this pose.
+        dynamic_zero_[i] += state.q[i];
+    }
+    save_dynamic_zero();
+    std::printf("[zero] captured current pose as zero. dynamic_zero:");
+    for (int i = 0; i < 10; ++i) std::printf(" %+.4f", dynamic_zero_[i]);
+    std::printf("\n");
+    std::fflush(stdout);
+}
+
+void QminiApp::save_dynamic_zero() {
+    std::ofstream f(opts_.dynamic_zero_path);
+    if (!f) {
+        std::fprintf(stderr, "[zero] cannot write %s\n",
+                     opts_.dynamic_zero_path.c_str());
+        return;
+    }
+    f << "# Dynamic per-joint zero offset, captured at runtime.\n"
+      << "# Joint space (rad), order: HYL HRL HPL KL AL HYR HRR HPR KR AR.\n"
+      << "# Subtracted from measured q before the controller sees it; added\n"
+      << "# back to q_target before the motor sees it. Stacks on top of\n"
+      << "# config.yaml::startq (which lives in the hardware backend's\n"
+      << "# gear-ratio math).\n"
+      << "dynamic_zero: [";
+    for (int i = 0; i < 10; ++i) {
+        f << dynamic_zero_[i];
+        if (i < 9) f << ", ";
+    }
+    f << "]\n";
+}
+
+void QminiApp::load_dynamic_zero() {
+    std::ifstream f(opts_.dynamic_zero_path);
+    if (!f) return;  // no file → all-zeros is fine
+    try {
+        YAML::Node y = YAML::Load(f);
+        auto v = y["dynamic_zero"].as<std::vector<float>>();
+        for (int i = 0; i < 10 && i < static_cast<int>(v.size()); ++i) {
+            dynamic_zero_[i] = v[i];
+        }
+        std::printf("[zero] loaded %s:", opts_.dynamic_zero_path.c_str());
+        for (int i = 0; i < 10; ++i) std::printf(" %+.4f", dynamic_zero_[i]);
+        std::printf("\n");
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[zero] failed to parse %s: %s\n",
+                     opts_.dynamic_zero_path.c_str(), e.what());
+    }
 }
 
 void QminiApp::control_tick() {
     relative_time_ += control_dt_;
     const float ratio = std::min(relative_time_ / opts_.stand_duration, 1.f);
 
-    rl_->update_motor_state(motor_->read());
+    // Apply dynamic zero offset to the measured motor state before the
+    // controller sees it (subtract). The matching add-back happens at the
+    // outgoing cmd below.
+    hal::MotorStateFrame state = motor_->read();
+    for (int i = 0; i < 10; ++i) state.q[i] -= dynamic_zero_[i];
+
+    rl_->update_motor_state(state);
     rl_->update_base_state(imu_->read());
     rl_->update_joystick(joystick_->read());
 
@@ -186,6 +293,12 @@ void QminiApp::control_tick() {
         case 'q':
             // Stop flag set in mode_tick; emit zero-gain command and let the
             // outer loop wind down.
+            break;
+        case '0':
+            // Hold-zero: PD-ramp joint_act to all-zeros over stand_duration.
+            // Useful after capturing dynamic_zero with key 'z' — verifies the
+            // captured offset is correct (robot should physically stay put).
+            rl_->zero_pose_control(ratio);
             break;
         case '2':
             rl_->stand_control(ratio);
@@ -202,7 +315,13 @@ void QminiApp::control_tick() {
             break;
     }
 
-    motor_->send(rl_->to_motor_cmd(current_mode_));
+    // Add dynamic zero back to q_target before shipping to the motor (the
+    // matching subtraction happened on the incoming state above). The
+    // motor sees the same absolute targets it always did; only the
+    // controller's coordinate frame slid.
+    hal::MotorCmdFrame cmd = rl_->to_motor_cmd(current_mode_);
+    for (int i = 0; i < 10; ++i) cmd.q_target[i] += dynamic_zero_[i];
+    motor_->send(cmd);
 }
 
 void QminiApp::report_tick() {

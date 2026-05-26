@@ -98,6 +98,7 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 | `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
 | `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
 | `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
+| `--zero-on-start` | At boot, capture the current measured pose as the joint-space zero. Equivalent to pressing `z` once in mode 1. Useful for scripted / unattended bring-up after the operator has manually positioned the robot. |
 | `--sin-joint <N>` | In mode `5` (sin test), wiggle joint N (0..9) instead of the config default. Indices: 0=hip_yaw_l, 1=hip_roll_l, 2=hip_pitch_l, 3=knee_l, 4=ankle_l, 5=hip_yaw_r, 6=hip_roll_r, 7=hip_pitch_r, 8=knee_r, 9=ankle_r. (`-1` = all-joints was removed — unsafe on real robot.) |
 | `--sin-amp <rad>` `--sin-freq <hz>` | Amplitude and frequency for the sin wiggle (defaults 0.5 rad / 1 Hz). |
 | `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
@@ -122,6 +123,8 @@ button press; you won't see what you type (raw mode, no echo).
 | `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
 | `r` / space | reset command axes to zero |
 | `[` / `]` | in mode `5`, cycle to prev/next sin-test joint live (no restart). Wraps `9` → `0`. |
+| `z` | Capture current measured pose as the new zero. **Only honored in mode `1` (zero torque) for safety.** Writes `bin/dynamic_zero.yaml`; auto-loads on next boot. |
+| `h` | Toggle hold-zero (mode `0`): PD ramps every joint to `q=0`. Useful right after `z` to verify the capture. Toggle again or press `1` to leave. |
 
 Each consumed key echoes a short tag on its own line, e.g.:
 
@@ -131,6 +134,32 @@ Each consumed key echoes a short tag on its own line, e.g.:
 ```
 
 `Current mode: standing…` prints in green on every mode transition.
+
+### Re-zeroing the encoders at runtime
+
+`bin/config.yaml::startq` is the per-joint zero offset measured once at
+factory bring-up (raw motor angle at URDF natural pose). On the hardware
+backend it's baked into the gear-ratio conversion. After replacing a motor,
+re-cabling, or any time the encoder seems wrong, you can re-zero **without
+editing config.yaml**:
+
+1. Power on, robot in some pose.
+2. Press `1` to enter fold mode (zero torque).
+3. Manually position the robot in URDF natural pose (legs straight, body
+   upright — whatever your "true zero" reference is).
+4. Press `z`. Terminal prints `[zero] captured current pose as zero.` and
+   writes `bin/dynamic_zero.yaml` with the new offsets.
+5. (Optional) Press `h` to enter hold-zero mode. PD targets `q=0`; the robot
+   should physically stay where it was at the moment of capture. If it
+   doesn't move, the capture is correct.
+6. Next boot auto-loads the saved offsets from `dynamic_zero.yaml`.
+
+For scripted bring-up: pass `--zero-on-start` and skip steps 2–4.
+
+The dynamic offset is added on top of `config.yaml::startq` (in the
+controller layer, above HAL). It works identically across sim / mujoco /
+hardware. Delete `bin/dynamic_zero.yaml` to revert to the config-only
+baseline.
 
 ### Hanging the robot for observation
 

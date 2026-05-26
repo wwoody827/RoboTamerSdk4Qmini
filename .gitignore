@@ -38,3 +38,4 @@ __pycache__/
 # Claude Code
 .claude/
 bin/probe_modes
+bin/dynamic_zero.yaml

@@ -47,6 +47,7 @@ public:
     // Per-tick control entries.
     void rl_control();
     void stand_control(float ratio);
+    void zero_pose_control(float ratio);   // PD-ramp to q = [0]*10
     void sin_control(float amplitude, float f, float motion_time);
 
     // Output: build a motor command frame from current joint_act + mode.

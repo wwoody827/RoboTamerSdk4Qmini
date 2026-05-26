@@ -30,6 +30,8 @@ public:
         float sin_amplitude = 0.5f;               // mode '5' sin amplitude (rad)
         float sin_frequency = 1.f;                // mode '5' sin frequency (Hz)
         int   sin_joint_idx = -2;                 // -2 = use config.yaml; 0..9 = single joint
+        bool  zero_on_start = false;              // capture current pose as zero at boot
+        std::string dynamic_zero_path = "dynamic_zero.yaml";  // persistence file
     };
 
     explicit QminiApp(Options opts);
@@ -78,6 +80,17 @@ private:
 
     int last_hat0_ = 0;          // edge-detect [ / ] presses
     int sin_joint_now_ = -2;     // last applied sin_joint_idx (-2 = haven't overridden yet)
+    int last_hat1_ = 0;          // edge-detect z / h presses (zero ops)
+
+    // Dynamic per-joint zero offset, joint space. Subtracted from measured
+    // q before the controller sees it, added back to q_target before the
+    // motor sees it. Lets the operator re-zero at runtime (key 'z' in mode
+    // '1', or --zero-on-start at boot) without editing config.yaml.
+    std::array<float, 10> dynamic_zero_{};
+
+    void capture_zero();          // current state.q → dynamic_zero_, persist
+    void load_dynamic_zero();     // read from opts_.dynamic_zero_path
+    void save_dynamic_zero();     // write to opts_.dynamic_zero_path
 };
 
 }  // namespace qmini

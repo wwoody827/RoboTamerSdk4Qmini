@@ -123,6 +123,8 @@ private:
                     break;
                 case '[': frame_.hat[0] = -1; hat_set_at_[0] = now; label = "sin_joint--"; break;
                 case ']': frame_.hat[0] = +1; hat_set_at_[0] = now; label = "sin_joint++"; break;
+                case 'z': frame_.hat[1] = +1; hat_set_at_[1] = now; label = "capture_zero"; break;
+                case 'h': frame_.hat[1] = -1; hat_set_at_[1] = now; label = "hold_zero";    break;
                 case '1': button_idx = 9; label = "fold";        break;
                 case '2': button_idx = 0; label = "stand";       break;
                 case '3': button_idx = 3; label = "walk";        break;
