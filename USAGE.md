@@ -1,52 +1,63 @@
 # Using the SDK
 
-How to build the SDK and run the two top-level binaries:
+How to build the SDK and drive its two binaries:
 
-- `bin/run_interface` — policy/control runtime. Connects to a backend
+- `bin/run_interface` — control runtime. Connects to a backend
   (sim / mujoco / hardware), runs the FSM, optionally loads ONNX policy.
 - `bin/pd_calibration_tool` — PD calibration sweep. No policy. Drives
-  one joint at a time and dumps `.npz` traces to disk.
+  one joint at a time and dumps `.npz` traces. See also
+  `PD_CALIBRATION_SPEC.md` for the protocol it implements.
 
-Tested on Ubuntu 24.04 + cmake 3.28, an `env_isaaclab` conda env that
-has `mujoco` and `numpy/scipy/pyyaml` installed. No root needed for
-the desktop builds.
+Tested on Ubuntu 24.04 + CMake 3.28 + an `env_isaaclab` conda env with
+`mujoco` and `numpy/scipy/pyyaml`. No root needed for the desktop builds
+except `sudo apt install libglfw3-dev` once.
 
 ---
 
 ## 1. Pick a backend
 
-| What you want to do | Backend | Preset |
+| Goal | Backend | Preset |
 |---|---|---|
-| Just run unit tests, exercise the FSM and obs builder | `sim` | `desktop-sim` |
-| See the policy stand / walk under real physics on this desktop | `mujoco` | `desktop-mujoco` |
-| Drive a real Qmini robot | `hardware` | `robot-release` (arm64) |
+| Unit / integration tests, fast dev loop | `sim` | `desktop-sim` |
+| Watch policy under real physics with live viewer | `mujoco` | `desktop-mujoco` |
+| Drive the real Qmini robot | `hardware` | `robot-release` (ARM64, on the Orin) |
 
-Each preset has its own `build/<preset>/` dir; switching between them
-is just `cmake --preset <name>` + `cmake --build`. The output binaries
-**always go to `bin/`**, so the last preset built is the one that runs
-when you type `./bin/run_interface`.
+Each preset has its own `build/<preset>/` dir. Switching is just
+`cmake --preset <name>` + `cmake --build …`. Binaries always go to
+`bin/`, so the most-recently-built preset wins when you type
+`./bin/run_interface`.
 
 ---
 
-## 2. One-time MuJoCo setup (desktop-mujoco only)
+## 2. One-time setup
 
-The build links against an existing MuJoCo install. The conda env that
-trains the policy already has one — point the build script at it:
+### MuJoCo (desktop-mujoco only)
+
+Point the build at any MuJoCo install (the conda env that trains the
+policy already has one):
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini
 sim_assets/setup_mujoco.sh /home/woody/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/mujoco
 ```
 
-This creates `lib/mujoco/include` and `lib/mujoco/libmujoco.so*` symlinks
-into the conda install. Rerun it whenever you switch conda envs or
-upgrade mujoco.
+Creates `lib/mujoco/include` and `lib/mujoco/libmujoco.so*` symlinks.
+Rerun whenever you switch conda envs or upgrade mujoco.
 
-Then bake the MJCF from the URDF (only needed when the URDF changes):
+### GLFW (desktop-mujoco only, for the viewer)
 
 ```bash
-/home/woody/miniconda3/envs/env_isaaclab/bin/python3 sim_assets/build_mjcf.py
-# → sim_assets/q1_sim.mjcf  + sim_assets/meshes/*.STL
+sudo apt install libglfw3-dev
+```
+
+Without it, the viewer stub compiles in place and the binary still
+runs headlessly — useful for SSH / benchmarks.
+
+### MJCFs (regenerate when the URDF changes)
+
+```bash
+python3 sim_assets/build_mjcf.py             # → q1_sim.mjcf (free-fall, default)
+python3 sim_assets/build_mjcf.py --hang 1.0  # → q1_sim_hung.mjcf (torso pinned at z=1m)
 ```
 
 ---
@@ -54,199 +65,172 @@ Then bake the MJCF from the URDF (only needed when the URDF changes):
 ## 3. Build
 
 ```bash
-cd ~/code/RoboTamerSdk4Qmini
-
-# Desktop, MuJoCo physics (this is what you'll normally use):
+# Desktop, MuJoCo physics + viewer (what you'll normally use):
 cmake --preset desktop-mujoco
 cmake --build build/desktop-mujoco -j
 
-# Or just sim (faster, no physics, no MuJoCo dep):
+# Or sim only (no MuJoCo dep):
 cmake --preset desktop-sim
 cmake --build build/desktop-sim -j
 
-# Run tests for the preset you built:
+# Robot (only configures on the ARM64 robot, needs unitree_sdk2):
+cmake --preset robot-release
+cmake --build build/robot-release -j
+
+# Tests for the preset you built:
 (cd build/desktop-mujoco && ctest)
 ```
 
-Both `run_interface` and `pd_calibration_tool` end up in `bin/`.
-Confirm what the binary actually links to:
+Sanity-check what the binary actually links to:
 
 ```bash
-ldd bin/run_interface | grep -E "mujoco|onnx"
+ldd bin/run_interface | grep -E "mujoco|glfw|onnx"
 ```
-
-Expect `libmujoco.so` for `desktop-mujoco`, nothing for `desktop-sim`.
 
 ---
 
-## 4. Run the policy in MuJoCo physics
+## 4. `run_interface`
 
-The binary loads `config.yaml` and `sim_assets/q1_sim.mjcf` from CWD,
-so run it from a dir that has both. The repo's `tests/fixtures/` is
-exactly that:
-
-```bash
-cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
-../../bin/run_interface --no-onnx --no-log
-```
-
-| Flag | Why |
-|---|---|
-| `--no-onnx` | Use identity policy (zeros). Build also defaults to `WITH_ONNX=OFF` for desktop — saves linking onnxruntime. |
-| `--no-log` | Don't write `general.txt` / `rl.txt` and don't open the UDP broadcast. |
-| `--keyboard` | Switch to line-mode stdin (digit + Enter). Use on hardware builds without a joystick — see note below. |
-| `--policy <path>` | Load a different ONNX (only if built with `WITH_ONNX=ON`). |
-| `--mjcf <path>` | Override the MJCF (default `sim_assets/q1_sim.mjcf`). Use `sim_assets/q1_sim_hung.mjcf` to hang the torso while observing legs. |
-| `--no-viewer` | Headless (no GLFW window). Useful over SSH or when benchmarking. |
-| `--zero-on-start` | At boot, capture the current measured pose as the joint-space zero. Equivalent to pressing `z` once in mode 1. Useful for scripted / unattended bring-up after the operator has manually positioned the robot. |
-| `--sin-joint <N>` | In mode `5` (sin test), wiggle joint N (0..9) instead of the config default. Indices: 0=hip_yaw_l, 1=hip_roll_l, 2=hip_pitch_l, 3=knee_l, 4=ankle_l, 5=hip_yaw_r, 6=hip_roll_r, 7=hip_pitch_r, 8=knee_r, 9=ankle_r. (`-1` = all-joints was removed — unsafe on real robot.) |
-| `--sin-amp <rad>` `--sin-freq <hz>` | Amplitude and frequency for the sin wiggle (defaults 0.5 rad / 1 Hz). |
-| `--stand-kp-scale N` | Multiply mode-`2` (stand) `kp` by N. The config gains are sized for the deployed policy and look frozen in sim; pass `30` for a visible stand response. |
-| `--stand-kd-scale N` | Same as above for `kd`. Default 1.0. |
-| `--initial-mode <c>` | FSM mode at startup (default `1` = fold/no-torque). Pass `2` to boot directly into the stand controller — recommended with the hung MJCF so the legs don't flail under zero-torque gravity for several seconds before you press `2`. |
-
-### Controls (desktop default — stdin joystick, raw mode, no echo)
-
-The sim and mujoco backends ship with a keyboard-driven sim joystick
-that the binary attaches to stdin automatically. Each keystroke is a
-button press; you won't see what you type (raw mode, no echo).
-
-| Key | Action |
-|---|---|
-| `1` | folding / default (smooth init → MGTO ref) |
-| `2` | stand (PD hold at MGTO) |
-| `3` | RL walk (runs policy; needs `--policy` unless you want identity-zero actions) |
-| `5` | sin test (0.2 rad amplitude, 2 Hz on a single joint) |
-| `b` | quit |
-| `w` / `s` | `cmd_vx` ± 0.1 m/s |
-| `a` / `d` | `cmd_vy` ± 0.1 m/s |
-| `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
-| `r` / space | reset command axes to zero |
-| `[` / `]` | in mode `5`, cycle to prev/next sin-test joint live (no restart). Wraps `9` → `0`. |
-| `z` | Capture current measured pose as the new zero. **Only honored in mode `1` (zero torque) for safety.** Writes `bin/dynamic_zero.yaml`; auto-loads on next boot. |
-| `h` | Toggle hold-zero (mode `0`): PD ramps every joint to `q=0`. Useful right after `z` to verify the capture. Toggle again or press `1` to leave. |
-
-Each consumed key echoes a short tag on its own line, e.g.:
-
-```
-[key '2' → stand]
-[key 'w' → vx+]
-```
-
-`Current mode: standing…` prints in green on every mode transition.
-
-### Re-zeroing the encoders at runtime
-
-`bin/config.yaml::startq` is the per-joint zero offset measured once at
-factory bring-up (raw motor angle at URDF natural pose). On the hardware
-backend it's baked into the gear-ratio conversion. After replacing a motor,
-re-cabling, or any time the encoder seems wrong, you can re-zero **without
-editing config.yaml**:
-
-1. Power on, robot in some pose.
-2. Press `1` to enter fold mode (zero torque).
-3. Manually position the robot in URDF natural pose (legs straight, body
-   upright — whatever your "true zero" reference is).
-4. Press `z`. Terminal prints `[zero] captured current pose as zero.` and
-   writes `bin/dynamic_zero.yaml` with the new offsets.
-5. (Optional) Press `h` to enter hold-zero mode. PD targets `q=0`; the robot
-   should physically stay where it was at the moment of capture. If it
-   doesn't move, the capture is correct.
-6. Next boot auto-loads the saved offsets from `dynamic_zero.yaml`.
-
-For scripted bring-up: pass `--zero-on-start` and skip steps 2–4.
-
-The dynamic offset is added on top of `config.yaml::startq` (in the
-controller layer, above HAL). It works identically across sim / mujoco /
-hardware. Delete `bin/dynamic_zero.yaml` to revert to the config-only
-baseline.
-
-### Hanging the robot for observation
-
-The default MJCF lets the robot fall freely — fine for trained-policy
-deployment testing, useless for watching what the legs do under
-identity-zero actions (the robot just collapses). Bake a "hung"
-variant that pins the torso to a fixed world point:
-
-```bash
-python3 sim_assets/build_mjcf.py --hang 1.0   # writes q1_sim_hung.mjcf
-```
-
-Then pass it via `--mjcf`:
+### Quick start (desktop, mujoco + viewer + hung MJCF)
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 ../../bin/run_interface --no-onnx --no-log \
-    --mjcf ../../sim_assets/q1_sim_hung.mjcf \
-    --initial-mode 2
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --initial-mode 2
 ```
 
-The torso is **rigidly attached** to the worldbody at the spawn pose
-(no freejoint → no equality solver needed), so it stays upright
-without oscillating. The floor sits at z = −1 m so the body visibly
-hangs 1 m above the ground.
+The viewer window opens, robot stands at the ref pose, keyboard
+controls take over.
 
-Why `--initial-mode 2`: the default startup mode is `1` (fold), which
-applies **zero torque**. The hung MJCF starts joints at the stand-ref
-pose via a `<keyframe name="home">`, but with no torque + gravity the
-legs drift — mode `1` is a passive init meant to be brief; on the
-real robot the operator presses `2` immediately. Booting directly in
-stand mode (`2`) keeps the PD controller holding the reference pose
-from t=0, ramping there over the configured `--stand-duration` (2 s
-default).
+### CLI flags
 
-`config.yaml`'s `kp / kd / ref_joint_act` are sourced verbatim from
-the training side (`qmini_lab/.../q1/constants.py` — see the comments
-in `config.yaml`). The default `--stand-kp-scale 1` works directly;
-no scaling needed. Earlier docs recommended `--stand-kp-scale 30` as
-a band-aid for stale config values that have since been synced. The legs swing naturally below — great
-for sanity-checking actions without the robot face-planting.
+| Flag | Purpose |
+|---|---|
+| `--no-onnx` | Use identity policy (zeros). Default for desktop. |
+| `--no-log` | Skip `general.txt` / `rl.txt` and the UDP telemetry broadcast. |
+| `--policy <path>` | Load a specific ONNX file (needs `WITH_ONNX=ON`). |
+| `--mjcf <path>` | Mujoco-backend MJCF (default `sim_assets/q1_sim.mjcf`). Pass `q1_sim_hung.mjcf` for observation. |
+| `--no-viewer` | Headless — skip GLFW window. |
+| `--initial-mode <c>` | FSM mode at startup. Default `1` (fold/zero-torque). Pass `2` to boot directly into stand. |
+| `--stand-duration <s>` | Stand-mode ramp time (default 2 s). Larger = gentler on hardware. |
+| `--stand-kp-scale <N>` / `--stand-kd-scale <N>` | Multiplier on mode-`2` gains. Default `1.0` (= use `config.yaml::kp/kd`). |
+| `--sin-joint <0..9>` | In mode `5`, which joint to wiggle. Default = `config.yaml::sin_joint_idx`. |
+| `--sin-amp <rad>` `--sin-freq <Hz>` | Sin amplitude/frequency (default 0.5 rad / 1 Hz). |
+| `--zero-on-start` | At boot, capture current pose as the joint-space zero. Same as pressing `z` once in mode 1. |
+| `--keyboard` | Switch mode FSM to line-mode stdin (digit + Enter). For hardware builds without a paired joystick. **Don't pass on sim/mujoco** — the keyboard joystick already owns stdin. |
+| `--iface <name>` | Network iface (hardware backend only). |
 
-`--stand-kp-scale 30` is the boost that makes pressing `2` (stand)
-actually drive the legs to the reference pose. Without it, the
-config `kp` values (sized for the deployed policy on the real robot)
-are too weak to move the joints against gravity at visible speed in
-sim. Tune to taste; 30× is enough for snappy stand, 100× looks twitchy.
+### Modes (FSM)
 
-Remove `--mjcf` (or rebake without `--hang`) when testing a real
-trained policy — the policy was trained with the free-fall MJCF.
+| Mode | What it does | kp/kd source |
+|---|---|---|
+| `1` | Fold / idle | `kp_soft = kd_soft = 0` (zero torque) |
+| `2` | Stand | `kp_ * stand_kp_scale`, `kd_ * stand_kd_scale` |
+| `3` | RL walk (runs policy) | `kp_`, `kd_` directly |
+| `5` | Sin test (single joint) | `kp_`, `kd_` directly |
+| `0` | Hold-zero (PD to `q=[0]*10`) | `kp_`, `kd_` directly |
+| `q` | E-stop (zero gains, stop_flag set) | — |
 
-### About `--keyboard`
+FSM transitions: `1 ↔ 2`, `2 ↔ 3`, `2 → 5` (sin), `3 → 4/5/6/7/8/9` (RL
+sub-tasks). `0` is reachable from `1` or `2` via the `h` key.
 
-`--keyboard` switches the mode FSM to **line-mode stdin** (type a
-digit, press Enter). It exists because hardware builds may not have a
-joystick paired and you still need a way to drive modes. **Don't pass
-it with the sim or mujoco backend** — the keyboard joystick would
-race the line-mode reader for stdin. On desktop, leave it off and use
-the direct keys above.
+### Keyboard (stdin joystick — desktop default)
 
-To run with a trained policy:
+Each keystroke is a button press, raw mode (no Enter, no echo). Every
+consumed key echoes `[key 'X' → tag]` to stdout, and mode transitions
+print in green: `Current mode: standing…`.
 
-```bash
-../../bin/run_interface --policy /path/to/policy.onnx --no-log
-# (requires the build to have WITH_ONNX=ON; use cmake preset desktop-sim-onnx
-#  or pass -DWITH_ONNX=ON when configuring desktop-mujoco)
-```
+| Key | Action |
+|---|---|
+| `1` | mode 1 (fold) |
+| `2` | mode 2 (stand) |
+| `3` | mode 3 (RL walk) |
+| `5` | mode 5 (sin test) |
+| `b` | quit |
+| `w` / `s` | `cmd_vx` ± 0.1 m/s |
+| `a` / `d` | `cmd_vy` ± 0.1 m/s |
+| `q` / `e` | `cmd_yaw` ± 0.1 rad/s |
+| `r` / space | reset all command axes to 0 |
+| `[` / `]` | (mode 5 only) cycle to prev / next sin joint, wraps 9 → 0 |
+| `z` | (mode 1 only) capture current pose as the new zero. Writes `bin/dynamic_zero.yaml`. |
+| `h` | toggle hold-zero (mode `0`). Use right after `z` to verify the capture. |
 
----
+### Re-zeroing the encoders at runtime
 
-## 5. Run the PD calibration tool
+`bin/config.yaml::startq` is the per-joint zero offset measured once at
+factory bring-up. On the hardware backend it's baked into the gear-ratio
+conversion. After a motor swap / re-cable / wrong-encoder, re-zero
+**without editing config.yaml**:
+
+1. Power on (robot in any pose).
+2. Press `1` (fold, zero torque).
+3. Manually position the robot at URDF natural pose (legs straight,
+   body upright — your "true zero" reference).
+4. Press `z`. Terminal prints `[zero] captured…` and writes
+   `bin/dynamic_zero.yaml`.
+5. Optionally press `h` to enter hold-zero. PD targets `q=0`; robot
+   should physically stay put. If it doesn't move, the capture was
+   correct.
+6. Next boot auto-loads from `dynamic_zero.yaml`.
+
+For scripted / unattended bring-up, replace steps 2–4 with the CLI
+flag `--zero-on-start`.
+
+The dynamic offset is added on top of `config.yaml::startq` in the
+controller layer (above HAL). Works identically across sim / mujoco /
+hardware. Delete `bin/dynamic_zero.yaml` to revert.
+
+### Sim observation: the hung MJCF
+
+The default MJCF (`q1_sim.mjcf`) lets the robot fall freely under
+gravity. Fine for trained-policy deployment testing; useless for
+watching what the legs do under zero or identity-policy actions
+(the robot just collapses). Pass the hung variant:
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
-../../bin/pd_calibration_tool --i-have-checked-the-harness --quick \
-    --output-root /tmp/calib --label sanity
+../../bin/run_interface --no-onnx --no-log \
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --initial-mode 2
 ```
 
-Quick mode is the smoke-test path — one joint, one 2 s sine. Use it
-to verify the binary runs against your backend before committing to
-the full sweep.
+The hung MJCF (built by `build_mjcf.py --hang Z`):
+- Drops the freejoint → torso is rigidly attached to the worldbody
+  at the spawn pose. No oscillation, no equality solver.
+- Moves the floor down to `z = −hang_z` so the body appears
+  `hang_z` metres above the ground.
+- Disables self-collisions between robot links (the URDF visual
+  meshes overlap at joints; without disabling, contact impulses
+  eject joints at 40+ rad/s — see commit history if curious).
+- Bakes a `<keyframe name="home">` at the stand reference pose;
+  `world.cpp` loads it so joints start where the policy expects.
 
-### Dry-run in MuJoCo with the live viewer
+`--initial-mode 2` is recommended in this mode: mode `1` applies
+zero torque, so legs gradually drift under gravity. Booting straight
+in mode `2` keeps PD active from t=0.
 
-Before bringing the robot to a harness, rehearse the protocol in sim
-with the viewer up so you can see exactly what motion each trial
-commands:
+Remove `--mjcf` (or rebake without `--hang`) when testing a real
+policy — the policy was trained against the free-fall MJCF.
+
+### Running with a trained policy
+
+```bash
+../../bin/run_interface --policy /path/to/policy.onnx --no-log
+```
+
+Requires `WITH_ONNX=ON` at configure time. The default
+`desktop-mujoco` preset has `WITH_ONNX=OFF`; use `desktop-sim-onnx`
+or reconfigure with `-DWITH_ONNX=ON`. `bin/policy.onnx` is loaded by
+default if no `--policy` is given.
+
+---
+
+## 5. `pd_calibration_tool`
+
+Runs the protocol from `PD_CALIBRATION_SPEC.md` — drives one joint at
+a time through step / sine / chirp sequences and dumps NPZ traces.
+Refuses to start without the harness-acknowledgement flag.
+
+### Dry-run in sim with the viewer (before touching the robot)
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
@@ -255,155 +239,200 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
     --output-root /tmp/cal_dryrun --label dryrun
 ```
 
-`--mjcf` points at the hung MJCF (rigid torso, no foot contact —
-closest sim analogue of the harness setup the spec assumes).
-`--viewer` opens the same GLFW window as `run_interface`. Closing
-the window or Ctrl-C aborts cleanly. **Neither flag does anything
-on a hardware build** — they're sim-only, and the real-robot run
-shouldn't pass them.
-
-Full sweep is ~25 min, drives all 10 joints through Tests A (step)
-+ B (sine sweep) + C (chirp):
+`--quick` is the smoke test (single visible knee swing, ~4 s).
+For a fuller rehearsal:
 
 ```bash
+# Joint 3 (knee_l), Test A only — 9 step trials with varying kp/kd, ~81 s
 ../../bin/pd_calibration_tool --i-have-checked-the-harness \
-    --output-root data/pd_calibration \
-    --label initial \
-    --operator <your_name> \
-    --notes "first calibration after harness setup"
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --viewer \
+    --tests A --joints 3 \
+    --output-root /tmp/cal_dryrun --label j3_step
 ```
 
-`--minimal` collapses Test A's 3×3 kp/kd grid to a single trial at
-(kp=30, kd=1.0). Drops per-joint time from ~161 s to ~73 s. Use after
-the full sweep has confirmed motor linearity on this hardware (slope
-α_kp ≈ 1) — re-calibration sessions can stick with `--minimal`. For
-a brand-new robot, run the full sweep on at least 1-2 joints first.
+`--mjcf` and `--viewer` are sim-only — they no-op on hardware builds.
 
-Subset runs:
+### Real-robot workflow
+
+One joint at a time (recommended for first-ever calibration):
 
 ```bash
-# Joint 0 only, step test only:
-../../bin/pd_calibration_tool --i-have-checked-the-harness \
-    --tests A --joints 0 --output-root /tmp/calib --label step_j0
+cd ~/code/RoboTamerSdk4Qmini/bin   # config.yaml is here
 
-# Override tick rate (prints a warning — see §6 below):
-../../bin/pd_calibration_tool --i-have-checked-the-harness \
-    --tick-hz 200 --output-root /tmp/calib --label hires
+# Joint 0 — full A+B+C protocol, ~3 min
+./pd_calibration_tool --i-have-checked-the-harness \
+    --joints 0 --label j0_hip_yaw_l \
+    --output-root data/pd_calibration --operator <your_name>
+
+# inspect, re-run if needed, then joint 1
+./pd_calibration_tool --i-have-checked-the-harness \
+    --joints 1 --label j1_hip_roll_l \
+    --output-root data/pd_calibration --operator <your_name>
+# … repeat for joints 2..9
 ```
 
-Output layout:
+All 10 joints in one go (unattended, ~25 min):
+
+```bash
+./pd_calibration_tool --i-have-checked-the-harness \
+    --label initial_full --output-root data/pd_calibration --operator you
+```
+
+### CLI flags
+
+| Flag | Purpose |
+|---|---|
+| `--i-have-checked-the-harness` | Required. Refuses to start otherwise. |
+| `--joints N,N,...` | Subset of joints (default all 10). |
+| `--tests A,B,C` | Subset of tests (default A+B+C). |
+| `--quick` | Single 4 s sine on knee_l. Smoke test. |
+| `--minimal` | Test A uses only `kp=30, kd=1.0` (1 trial/joint instead of 9). Use after motor linearity is verified. |
+| `--mjcf <path>` | MuJoCo backend MJCF override (sim dry-runs). |
+| `--viewer` | Open GLFW viewer (sim dry-runs). |
+| `--no-imu` | Skip IMU backend; set `imu_*` fields to NaN. |
+| `--tick-hz <Hz>` | Override control rate. Default = `1/control_dt` from `config.yaml`. See §6. |
+| `--output-root <path>` | Output root (default `data/pd_calibration`). |
+| `--label <s>` | Run label suffix (default `initial`). |
+| `--operator <s>` | Operator name for `run_meta.json`. |
+| `--notes <s>` | Free-text notes for `run_meta.json`. |
+
+### Per-joint trial counts
+
+| Protocol | Trials / joint | Time / joint |
+|---|---|---|
+| `A + B + C` (default) | 9 + 6 + 1 = 16 | ~161 s |
+| `--minimal` (A + B + C) | 1 + 6 + 1 = 8 | ~73 s |
+| `--minimal --tests A` | 1 | ~9 s |
+
+### Output layout
 
 ```
-<output-root>/<run_id>/
-├── manifest.json          # trial list, rates, results
+<output-root>/<timestamp>_<label>/
+├── manifest.json          # trial list, achieved rates, results
 ├── run_meta.json          # operator, notes, harness flag
-├── log.txt                # per-trial start/stop lines
+├── log.txt
 ├── joint_00_hip_yaw_l/
 │   ├── A_kp30_kd0.5_step.npz
-│   ├── A_kp30_kd1.0_step.npz
 │   ├── …
 │   ├── B_kp30_kd1.0_sine_0.25Hz.npz
 │   └── C_kp30_kd1.0_chirp.npz
-└── joint_09_ankle_r/…
+└── joint_09_ankle_pitch_r/…
 ```
 
-Each `.npz` has 12 arrays (q, dq, tau_est, q_target, kp, kd, tau_ff,
-IMU rpy/omega/acc, t_s + 2-row dq_target) plus 4 scalars (joint index,
-label, mgto pose, achieved tick rate). See `PD_CALIBRATION_SPEC.md §7`.
+Each `.npz` has 12 arrays + 4 scalars; schema in
+`PD_CALIBRATION_SPEC.md §7`.
 
-### Fitting the traces
+### Fitting
 
 ```bash
-python3 tools/calibration_fit/fit_pd.py /tmp/calib/<run_id>/ \
+python3 tools/calibration_fit/fit_pd.py /tmp/cal_dryrun/<run_id>/ \
     --mjcf sim_assets/q1_sim.mjcf
-# → /tmp/calib/<run_id>/calibration.yaml
+# → /tmp/cal_dryrun/<run_id>/calibration.yaml
 ```
 
-The `--mjcf` flag enables the URDF gravity-gradient subtraction
-(spec §8.1 Y1 path). Without it, the output has `kp_motor = kp_eff`
-and a comment that gravity isn't separated out.
+`--mjcf` enables the URDF gravity-gradient subtraction (spec §8.1
+Y1 path). Without it, the output has `kp_motor = kp_eff` and an
+explicit comment that gravity isn't separated.
 
-**Don't auto-edit `qmini_lab` constants.** Per spec §11, the operator
-reviews `calibration.yaml` and hand-updates
-`qmini_lab/source/qmini_lab/assets/q1/constants.py`. See
-`data/pd_calibration/README.md` for the recipe.
+**Don't auto-edit `qmini_lab` constants.** Per spec §11, the
+operator reviews `calibration.yaml` and hand-updates
+`qmini_lab/.../q1/constants.py`. See `data/pd_calibration/README.md`.
 
 ---
 
 ## 6. Tick rate notes
 
-The PD calibration tool defaults to `1/control_dt` from `config.yaml`
-(currently `0.015 s` → **66.67 Hz**) — the same rate the deployed
-policy runs at. Calibrating at a different rate produces a
-discrete-time PD model that doesn't match what the policy actually
-sees at deploy.
+`pd_calibration_tool` defaults to `1/control_dt` from `config.yaml`
+(currently `0.015 s` → 66.67 Hz) — the same rate the deployed policy
+runs at. Calibrating at a different rate produces a discrete-time PD
+model that doesn't match what the policy actually sees.
 
 Override with `--tick-hz <Hz>` only when characterizing rate-dependent
-behaviour (e.g. running at 200 Hz to see the "continuous-time limit"
-vs the discrete-time-at-66.67-Hz response). The tool prints a banner
-warning whenever override is active.
+behaviour (e.g. 200 Hz vs 66.67 Hz comparison). The tool prints a
+banner warning whenever override is active.
 
-The rate watchdog aborts a trial if the achieved rate stays below 90 %
-of the requested rate for more than 500 ms continuous. If you see
-`aborted_slow_rate` in a trial's manifest entry, the hardware backend
-can't sustain the rate you asked for — lower `--tick-hz` and try again.
+The rate watchdog aborts a trial if the achieved rate drops below 90%
+of the requested rate for >500 ms continuous. If you see
+`aborted_slow_rate` in a trial's manifest entry, the backend can't
+sustain the requested rate — lower `--tick-hz` and try again.
 
 ---
 
 ## 7. Live viewer (MuJoCo backend)
 
-`run_interface` opens a GLFW window showing the robot in real time
-when built with `desktop-mujoco`. The viewer runs on its own thread
-(reads `qpos`/`qvel` from `World` under the world mutex, then renders
-at ~60 Hz) — physics ticks in the control thread are unaffected.
+Both `run_interface` and `pd_calibration_tool` open the same GLFW
+window when built against `desktop-mujoco` and run with `--viewer`
+(default-on for `run_interface`, opt-in for the calibration tool).
 
-Mouse controls inside the window:
+Renderer runs on a dedicated thread, snapshots `qpos`/`qvel` from
+`World` under the world mutex, then renders at ~60 Hz without
+holding the lock — physics ticks in the control thread are
+unaffected.
 
-| Input | Action |
+| Mouse | Action |
 |---|---|
 | Left-drag | Rotate camera |
 | Right-drag | Pan camera |
 | Scroll | Zoom |
 | Shift + drag | Horizontal pan |
-| Close window | Sends stop flag to the app |
+| Close window | Sets stop_flag, app shuts down cleanly |
 
-Disable with `--no-viewer` if you want to run completely headless
-(e.g. over SSH without X-forwarding, or for benchmarking).
-
-Build requirement: `libglfw3-dev`. If `find_package(glfw3)` fails at
-configure time, CMake prints a notice and a no-op viewer stub is
-compiled instead — `run_interface` still works, just without a window.
-
-```bash
-sudo apt install libglfw3-dev      # if you don't have it
-```
-
-The calibration tool currently doesn't pop a viewer (no policy → no
-visualization). The `.npz` traces can be replayed afterwards in
-`python -m mujoco.viewer`.
+Disable with `--no-viewer` (or just don't pass `--viewer` for the
+calibration tool). If `libglfw3-dev` was missing at configure time
+the viewer stub compiles in place and `--viewer` prints a notice
+and continues headless.
 
 ---
 
-## 8. Cheat sheet
+## 8. Diagnostics: `bin/probe_modes`
+
+Drives `QminiApp` through one FSM mode for N seconds, prints joint
+positions every 0.5 s, and dumps the full trace to
+`/tmp/probe_mode<char>.npz`. Doesn't run as part of `ctest`.
 
 ```bash
-# Build everything desktop:
-cmake --preset desktop-mujoco && cmake --build build/desktop-mujoco -j
+cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
+../../bin/probe_modes <mode_char> <duration_s> [stand_kp_scale=30]
 
-# Run policy in mujoco physics, no real ONNX, keyboard joystick (default):
-cd tests/fixtures && ../../bin/run_interface --no-onnx --no-log
-
-# Calibration smoke test in mujoco physics:
-cd tests/fixtures && ../../bin/pd_calibration_tool \
-    --i-have-checked-the-harness --quick --output-root /tmp/c --label smoke
-
-# Calibration full sweep (real robot, hardware backend):
-cd bin && ./pd_calibration_tool --i-have-checked-the-harness \
-    --output-root data/pd_calibration --label initial --operator you
+# e.g.
+../../bin/probe_modes 5 3 1          # sin test, 3 s, default gains
+../../bin/probe_modes 2 7 1          # stand, 7 s
 ```
 
+Use when "I don't see motion" or "is the FSM transitioning?" — the
+NPZ has every tick of `q`, `q_target`, `ref_joint_act` so you can
+verify what the SDK actually commanded vs measured, independent of
+viewer perception.
+
+---
+
+## 9. Cheat sheet
+
 ```bash
-# Switch back to sim (no physics, no mujoco needed):
-cmake --build build/desktop-sim -j --target run_interface
-ldd bin/run_interface | grep mujoco   # should be empty
+# Build desktop with viewer:
+cmake --preset desktop-mujoco && cmake --build build/desktop-mujoco -j
+
+# Run policy + viewer, hung MJCF, stand from t=0:
+cd tests/fixtures && ../../bin/run_interface --no-onnx --no-log \
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --initial-mode 2
+
+# Dry-run calibration in sim with viewer:
+cd tests/fixtures && ../../bin/pd_calibration_tool \
+    --i-have-checked-the-harness --quick \
+    --mjcf ../../sim_assets/q1_sim_hung.mjcf --viewer \
+    --output-root /tmp/dryrun --label dr
+
+# Real-robot calibration, one joint, full protocol:
+cd bin && ./pd_calibration_tool --i-have-checked-the-harness \
+    --joints 3 --label j3_knee \
+    --output-root data/pd_calibration --operator <name>
+
+# Re-zero encoders at runtime (interactive):
+# Press 1, manually position robot, press z, optionally press h to verify
+
+# Or at boot:
+../../bin/run_interface --no-onnx --no-log --zero-on-start ...
+
+# Diagnostic dump of one FSM mode:
+../../bin/probe_modes 5 3 1   # mode 5, 3 s, stand_scale=1
 ```
