@@ -104,11 +104,20 @@ private:
                 c.motorType = MotorType::GO_M8010_6;
                 c.mode = queryMotorMode(MotorType::GO_M8010_6, MotorMode::FOC);
                 c.id = channel_id(id);
-                c.kp  = snapshot.kp[id];
-                c.kd  = snapshot.kd[id];
-                c.tau = snapshot.tau_ff[id];
                 const float ratio = is_special(id)
                                   ? (kSpeedRatio * kGearRatio) : kSpeedRatio;
+                // Joint→motor space PD conversion. The Unitree GO-M8010-6
+                // firmware computes PD in MOTOR space:
+                //   tau_m = kp_m·(θ_target_m − θ_m) − kd_m·dθ_m
+                // and θ_m = G·q_joint, tau_joint = G·tau_m, so the
+                // effective joint-space gain is G²·kp_m. To deliver the
+                // joint-space PD that the controller requests (matching
+                // training-side QMINI_STIFFNESS / QMINI_PD_DAMPING in
+                // config.yaml), divide by G² here.
+                const float ratio2 = ratio * ratio;
+                c.kp  = snapshot.kp[id] / ratio2;
+                c.kd  = snapshot.kd[id] / ratio2;
+                c.tau = snapshot.tau_ff[id];
                 c.q  = (snapshot.q_target[id] + startq_[id]) * ratio;
                 c.dq = snapshot.dq_target[id] * ratio;
                 d.motorType = MotorType::GO_M8010_6;
