@@ -192,6 +192,12 @@ if (BACKEND STREQUAL "hardware")
     add_library(unitree_sdk2 STATIC IMPORTED GLOBAL)
     set_target_properties(unitree_sdk2 PROPERTIES
         IMPORTED_LOCATION ${UNITREE_SDK_LIB})
+    # CycloneDDS shared libs (ddsc/ddscxx) ship under thirdparty/lib/<arch>,
+    # not lib/<arch>. Add that dir to the link search path so the bare
+    # ddsc/ddscxx names resolve, and bake it into RPATH for runtime loading.
+    set(UNITREE_DDS_PATH
+        ${CMAKE_CURRENT_LIST_DIR}/thirdparty/lib/${CMAKE_SYSTEM_PROCESSOR})
+    target_link_directories(qmini_user PUBLIC ${UNITREE_DDS_PATH})
     target_link_libraries(qmini_user PUBLIC unitree_sdk2 ddsc ddscxx rt)
     # Motor SDK
     if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
@@ -231,6 +237,22 @@ if (BACKEND STREQUAL "mujoco")
     set_target_properties(pd_calibration_tool PROPERTIES
         BUILD_RPATH   "${MUJOCO_DIR}"
         INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
+# Motor status / ping — zero-torque diagnostic. Hardware backend only (it
+# talks to the real GO-M8010-6 serial bus directly via the motor SDK; no HAL,
+# no policy, no DDS/ONNX). Cannot move the robot (kp=kd=tau=0).
+if (BACKEND STREQUAL "hardware")
+    add_executable(motor_status tools/motor_status.cpp)
+    target_include_directories(motor_status PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+        target_link_libraries(motor_status PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/m8010motor/libUnitreeMotorSDK_Arm64.so)
+    else()
+        target_link_libraries(motor_status PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/m8010motor/libUnitreeMotorSDK_Linux64.so)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
