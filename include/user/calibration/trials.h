@@ -56,15 +56,16 @@ float safe_amp(float amp, float mgto_val, float lo, float hi);
 
 // Builders -----------------------------------------------------------------
 
-// Default protocol: Tests A+B+C, single pose (MGTO).
-// kp_grid / kd_grid for Test A (step). Spec default {30,50,80} × {0.5,1.0,2.0}.
-// Pass --minimal in pd_calibration_main to use {30} × {1.0} → 1 step trial/joint.
+// Default protocol: Tests A+B+C, single pose (MGTO). One step trial per joint
+// at the kp=30/kd=1.0 test preset (no kp/kd sweep); pd_calibration_main can
+// override the per-joint gain via --use-config-gains.
 std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& act_pos_low,
     const std::array<float, kNumJoints>& act_pos_high,
     const PoseRef& mgto_pose,
-    const std::vector<float>& kp_grid = {30.f, 50.f, 80.f},
-    const std::vector<float>& kd_grid = {0.5f, 1.0f, 2.0f});
+    const std::array<float, kNumJoints>& kp,
+    const std::array<float, kNumJoints>& kd,
+    const std::vector<float>& sine_freqs = {0.25f, 0.5f, 1.f, 2.f, 4.f, 8.f});
 
 // Quick smoke-test plan: 1 joint × 1 step × 2 s. Used by --quick.
 std::vector<Trial> build_quick_plan(int joint_index = 0);

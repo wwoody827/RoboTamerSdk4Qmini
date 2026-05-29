@@ -76,10 +76,10 @@ std::string fmt_label(const char* test, float kp, float kd,
     char buf[64];
     if (extra >= 0.f) {
         std::snprintf(buf, sizeof(buf),
-                      "%s_kp%.0f_kd%.1f_%s_%.2fHz",
+                      "%s_kp%.0f_kd%.2f_%s_%.2fHz",
                       test, kp, kd, tag, extra);
     } else {
-        std::snprintf(buf, sizeof(buf), "%s_kp%.0f_kd%.1f_%s",
+        std::snprintf(buf, sizeof(buf), "%s_kp%.0f_kd%.2f_%s",
                       test, kp, kd, tag);
     }
     return std::string(buf);
@@ -91,66 +91,65 @@ std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& act_pos_low,
     const std::array<float, kNumJoints>& act_pos_high,
     const PoseRef& mgto_pose,
-    const std::vector<float>& kp_grid,
-    const std::vector<float>& kd_grid) {
-    const std::size_t n_step = kp_grid.size() * kd_grid.size();
+    const std::array<float, kNumJoints>& kp,
+    const std::array<float, kNumJoints>& kd,
+    const std::vector<float>& sine_freqs) {
     std::vector<Trial> out;
-    out.reserve(10 * (n_step + 6 + 1));
-
-    const std::vector<float> sine_freqs = {0.25f, 0.5f, 1.f, 2.f, 4.f, 8.f};
+    out.reserve(10 * (1 + sine_freqs.size() + 1));
 
     for (int j = 0; j < kNumJoints; ++j) {
         float mgto_j = mgto_pose.q_target[j];
         float lo = act_pos_low[j];
         float hi = act_pos_high[j];
+        // Every test drives the joint at its deploy gain from config.yaml.
+        const float kp_j = kp[j];
+        const float kd_j = kd[j];
 
-        // Test A: step
-        float amp_step = safe_amp(0.15f, mgto_j, lo, hi);
-        for (float kp : kp_grid) {
-            for (float kd : kd_grid) {
-                Trial t;
-                t.joint = j;
-                t.test = TestKind::Step;
-                t.kp = kp;
-                t.kd = kd;
-                t.amp = amp_step;
-                t.freq_hz = -1.f;
-                t.pose_id = 0;
-                t.label = fmt_label("A", kp, kd, "step");
-                t.duration_s = StepSchedule::total;
-                out.push_back(t);
-            }
+        // Test A: single step (no kp/kd sweep).
+        {
+            float amp_step = safe_amp(0.15f, mgto_j, lo, hi);
+            Trial t;
+            t.joint = j;
+            t.test = TestKind::Step;
+            t.kp = kp_j;
+            t.kd = kd_j;
+            t.amp = amp_step;
+            t.freq_hz = -1.f;
+            t.pose_id = 0;
+            t.label = fmt_label("A", kp_j, kd_j, "step");
+            t.duration_s = StepSchedule::total;
+            out.push_back(t);
         }
 
-        // Test B: sine sweep at fixed kp=30, kd=1.0
+        // Test B: sine sweep.
         float amp_sin = safe_amp(0.10f, mgto_j, lo, hi);
         for (float f : sine_freqs) {
             Trial t;
             t.joint = j;
             t.test = TestKind::Sine;
-            t.kp = 30.f;
-            t.kd = 1.0f;
+            t.kp = kp_j;
+            t.kd = kd_j;
             t.amp = amp_sin;
             t.freq_hz = f;
             t.pose_id = 0;
-            t.label = fmt_label("B", 30.f, 1.0f, "sine", f);
+            t.label = fmt_label("B", kp_j, kd_j, "sine", f);
             // 5 periods + 1 s settle.
             t.duration_s = 5.0 / f + 1.0;
             out.push_back(t);
         }
 
-        // Test C: log chirp
+        // Test C: log chirp.
         float amp_chirp = safe_amp(0.08f, mgto_j, lo, hi);
         {
             Trial t;
             t.joint = j;
             t.test = TestKind::Chirp;
-            t.kp = 30.f;
-            t.kd = 1.0f;
+            t.kp = kp_j;
+            t.kd = kd_j;
             t.amp = amp_chirp;
             t.freq_hz = 0.f;
             t.pose_id = 0;
-            t.label = "C_kp30_kd1.0_chirp";
+            t.label = fmt_label("C", kp_j, kd_j, "chirp");
             t.duration_s = 30.0;
             out.push_back(t);
         }

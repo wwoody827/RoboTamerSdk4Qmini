@@ -57,8 +57,9 @@ void print_usage(const char* prog) {
         "Usage: %s --i-have-checked-the-harness [options]\n"
         "\n"
         "PD calibration tool. Drives one joint at a time around the MGTO\n"
-        "(stand pose, taken from config.yaml::ref_joint_act). Other joints\n"
-        "hold MGTO at kp_hold/kd_hold (default 80/2). No policy is loaded.\n"
+        "(stand pose, taken from config.yaml::ref_joint_act). All joints use\n"
+        "their per-joint kp/kd from config.yaml (the deploy gains). No sweep,\n"
+        "no policy loaded.\n"
         "\n"
         "Options:\n"
         "  -y, --yes               Skip the interactive 'Proceed?' confirmation\n"
@@ -66,12 +67,11 @@ void print_usage(const char* prog) {
         "                          default is to prompt before any motion.\n"
         "  --quick                 Single joint, single short step (~3 s).\n"
         "                          For sim sanity-checking the binary.\n"
-        "  --minimal               Test A uses only kp=30, kd=1.0 (1 trial/joint\n"
-        "                          instead of the 9-point sweep). Useful for\n"
-        "                          re-calibration after motor linearity has\n"
-        "                          already been verified on this hardware.\n"
         "  --tests A,B,C           Which tests to run (default: A,B,C).\n"
         "  --joints N,N,...        Which joints to run (default: all 10).\n"
+        "  --sine-freqs <hz,...>   Test B frequencies to run, comma-separated\n"
+        "                          (default 0.25,0.5,1,2,4,8). Use one value to\n"
+        "                          do a single frequency per run.\n"
         "  --output-root <path>    Output root (default: data/pd_calibration).\n"
         "  --label <str>           Run label suffix (default: initial).\n"
         "  --tick-hz <hz>          Override control rate. Default is 1/control_dt\n"
@@ -371,10 +371,10 @@ int main(int argc, char** argv) {
     bool harness_checked = false;
     bool assume_yes = false;
     bool quick = false;
-    bool minimal = false;
     bool no_imu = false;
     std::string tests = "A,B,C";
     std::string joints_str;
+    std::string sine_freqs_str;   // empty → default sweep {0.25..8}
     std::string output_root = "data/pd_calibration";
     std::string label = "initial";
     double tick_hz = -1.0;          // -1 sentinel → mirror 1/control_dt
@@ -405,10 +405,10 @@ int main(int argc, char** argv) {
         else if (a == "--i-have-checked-the-harness") harness_checked = true;
         else if (a == "--yes" || a == "-y") assume_yes = true;
         else if (a == "--quick") quick = true;
-        else if (a == "--minimal") minimal = true;
         else if (a == "--no-imu") no_imu = true;
         else if (a == "--tests")    tests = next("--tests");
         else if (a == "--joints")   joints_str = next("--joints");
+        else if (a == "--sine-freqs") sine_freqs_str = next("--sine-freqs");
         else if (a == "--output-root") output_root = next("--output-root");
         else if (a == "--label")    label = next("--label");
         else if (a == "--tick-hz") {
@@ -508,9 +508,13 @@ int main(int argc, char** argv) {
         mgto.q_target[i] = cfg.ref_joint_act[i];
     }
     std::array<float, qmini::calib::kNumJoints> lo{}, hi{};
+    std::array<float, qmini::calib::kNumJoints> kp_arr{}, kd_arr{};
     for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
         lo[i] = (i < static_cast<int>(cfg.act_pos_low.size())) ? cfg.act_pos_low[i] : -1.f;
         hi[i] = (i < static_cast<int>(cfg.act_pos_high.size())) ? cfg.act_pos_high[i] : +1.f;
+        // Every test drives the joint at its deploy gain from config.yaml.
+        kp_arr[i] = (i < static_cast<int>(cfg.kp.size())) ? cfg.kp[i] : 30.f;
+        kd_arr[i] = (i < static_cast<int>(cfg.kd.size())) ? cfg.kd[i] : 1.f;
     }
 
     // Build plan.
@@ -518,17 +522,26 @@ int main(int argc, char** argv) {
     if (quick) {
         plan = qmini::calib::build_quick_plan(0);
     } else {
-        // --minimal collapses the spec's 3×3 step grid down to one trial per
-        // joint (kp=30, kd=1.0). Test B (sine sweep) and Test C (chirp) are
-        // unchanged since they already use a single (kp, kd) pair.
-        const std::vector<float> kp_grid = minimal
-            ? std::vector<float>{30.f}
-            : std::vector<float>{30.f, 50.f, 80.f};
-        const std::vector<float> kd_grid = minimal
-            ? std::vector<float>{1.0f}
-            : std::vector<float>{0.5f, 1.0f, 2.0f};
+        // Test A is a single step trial; all tests use the per-joint deploy
+        // gains (kp_arr/kd_arr from config.yaml) — no kp/kd sweep.
+        // Test B frequencies: default sweep unless --sine-freqs given.
+        std::vector<float> sine_freqs = {0.25f, 0.5f, 1.f, 2.f, 4.f, 8.f};
+        if (!sine_freqs_str.empty()) {
+            sine_freqs.clear();
+            std::stringstream ss(sine_freqs_str);
+            std::string tok;
+            while (std::getline(ss, tok, ',')) {
+                float f = std::atof(tok.c_str());
+                if (f <= 0.f) {
+                    std::fprintf(stderr, "--sine-freqs values must be > 0 (was '%s')\n",
+                                 tok.c_str());
+                    return 2;
+                }
+                sine_freqs.push_back(f);
+            }
+        }
         std::vector<Trial> all = qmini::calib::build_default_plan(
-            lo, hi, mgto, kp_grid, kd_grid);
+            lo, hi, mgto, kp_arr, kd_arr, sine_freqs);
         // Filter by --joints
         std::vector<int> joint_filter;
         if (!joints_str.empty()) {

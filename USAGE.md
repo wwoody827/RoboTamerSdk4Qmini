@@ -230,6 +230,65 @@ Runs the protocol from `PD_CALIBRATION_SPEC.md` — drives one joint at
 a time through step / sine / chirp sequences and dumps NPZ traces.
 Refuses to start without the harness-acknowledgement flag.
 
+### Run sequence (hardware)
+
+A hardware run steps through these phases, each interruptible with
+Ctrl-C (soft stop) — keep the physical e-stop in reach as the hard stop:
+
+1. **startq zero calibration** (prompt, default yes). Motors go limp; a
+   10 s countdown lets you hand-pose the robot to the zero pose, then a
+   5 s window averages the measured positions. Confirm to **apply +
+   save** the new `startq` to `config.yaml` (picked up by future runs
+   and `run_interface`). Skip with `--no-zero-cal`.
+2. **`Proceed?`** confirmation before any motion.
+3. **Ramp to stand (MGTO)** — smooth ramp from the measured pose to the
+   stand pose (no snap), then it holds MGTO.
+4. **MGTO confirmation** — while holding the stand pose, verify it looks
+   correct (startq right, no joint off) before perturbations start.
+5. **Trials** — the step/sine/chirp plan, with the velocity watchdog.
+6. **Fold** — ramps `kp`/`kd` down to limp so the robot relaxes
+   gracefully instead of being left stiff. Skip with `--no-fold`.
+
+`-y`/`--yes` bypasses the prompts and skips zero-cal (for sim / scripted
+runs). Confirm the motor bus is live first with `./motor_status`.
+
+### Operator-friendly workflow (you're holding the robot)
+
+Every joint is driven at **its per-joint kp/kd from `config.yaml`** (the
+deploy gains) — there is no kp/kd sweep. To keep each hold short, do one
+frequency at a time. `startq` only needs calibrating once (it's saved),
+so add `--no-zero-cal` after the first run.
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/bin     # config.yaml is here
+
+# Confirm power/bus first (zero-torque, can't move the robot):
+./motor_status --rounds 5
+
+# Test A — one ~9 s step trial at the joint's deploy gain:
+./pd_calibration_tool --i-have-checked-the-harness \
+    --joints 3 --tests A
+
+# Test B — ONE frequency per run (each ~5/f + 1 s). Repeat per freq.
+# Use --safe-dq-max 8 for freqs >= 4 Hz (fast joints trip the default 4):
+./pd_calibration_tool --i-have-checked-the-harness --no-zero-cal \
+    --joints 3 --tests B --sine-freqs 1.0
+./pd_calibration_tool --i-have-checked-the-harness --no-zero-cal \
+    --joints 3 --tests B --sine-freqs 8.0 --safe-dq-max 8
+```
+
+All 10 joints, one frequency, with zero-cal in front (each joint ~3.5 s
+at 2 Hz, ~1.5 min total — one continuous hold):
+
+```bash
+./pd_calibration_tool --i-have-checked-the-harness --tests B --sine-freqs 2.0
+```
+
+Each run writes its own timestamped dir; the npz label shows the joint's
+actual gain and frequency (e.g. `joint_03_knee_l/B_kp45_kd0.50_sine_2.00Hz.npz`),
+so runs accumulate without overwriting. The npz also records the real
+per-tick kp/kd arrays.
+
 ### Dry-run in sim with the viewer (before touching the robot)
 
 ```bash
@@ -243,7 +302,7 @@ cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
 For a fuller rehearsal:
 
 ```bash
-# Joint 3 (knee_l), Test A only — 9 step trials with varying kp/kd, ~81 s
+# Joint 3 (knee_l), Test A only — one step trial at the joint's deploy gain, ~9 s
 ../../bin/pd_calibration_tool --i-have-checked-the-harness \
     --mjcf ../../sim_assets/q1_sim_hung.mjcf --viewer \
     --tests A --joints 3 \
@@ -271,22 +330,35 @@ cd ~/code/RoboTamerSdk4Qmini/bin   # config.yaml is here
 # … repeat for joints 2..9
 ```
 
-All 10 joints in one go (unattended, ~25 min):
+All 10 joints, full protocol in one session (~25 min of trials). Note
+this is **not** unattended — you hand-pose for zero-cal and confirm the
+`Proceed?`/MGTO prompts, then it runs the full A+B+C sweep:
 
 ```bash
 ./pd_calibration_tool --i-have-checked-the-harness \
     --label initial_full --output-root data/pd_calibration --operator you
 ```
 
+For the full sine sweep (Test B up to 8 Hz) add `--safe-dq-max 8` so the
+fast high-freq trials don't trip the velocity watchdog.
+
 ### CLI flags
 
 | Flag | Purpose |
 |---|---|
 | `--i-have-checked-the-harness` | Required. Refuses to start otherwise. |
+| `-y`, `--yes` | Skip the `Proceed?`/MGTO prompts and zero-cal (sim / scripted runs). |
 | `--joints N,N,...` | Subset of joints (default all 10). |
 | `--tests A,B,C` | Subset of tests (default A+B+C). |
+| `--sine-freqs <hz,...>` | Test B frequencies (default `0.25,0.5,1,2,4,8`). One value → single freq per run. |
 | `--quick` | Single 4 s sine on knee_l. Smoke test. |
-| `--minimal` | Test A uses only `kp=30, kd=1.0` (1 trial/joint instead of 9). Use after motor linearity is verified. |
+| `--no-zero-cal` | Skip the startq zero-calibration step (default = prompt, run). |
+| `--zero-cal-countdown <s>` | Seconds to hand-pose to the zero pose before measuring (default 10). |
+| `--zero-cal-measure <s>` | Averaging window for zero calibration (default 5). |
+| `--ramp-in-s <s>` | Smooth ramp from measured pose to MGTO before trials (default 3; 0 = none). |
+| `--safe-dq-max <rad/s>` | Velocity-watchdog trip; aborts a trial if `|dq|` exceeds it for 2 ticks (default 4). |
+| `--no-fold` | Don't fold (release gains to limp) at the end. |
+| `--fold-secs <s>` | Gain-release ramp at the end (default 2; 0 = instant). |
 | `--mjcf <path>` | MuJoCo backend MJCF override (sim dry-runs). |
 | `--viewer` | Open GLFW viewer (sim dry-runs). |
 | `--no-imu` | Skip IMU backend; set `imu_*` fields to NaN. |
@@ -298,11 +370,13 @@ All 10 joints in one go (unattended, ~25 min):
 
 ### Per-joint trial counts
 
+No kp/kd sweep — Test A is one step trial per joint.
+
 | Protocol | Trials / joint | Time / joint |
 |---|---|---|
-| `A + B + C` (default) | 9 + 6 + 1 = 16 | ~161 s |
-| `--minimal` (A + B + C) | 1 + 6 + 1 = 8 | ~73 s |
-| `--minimal --tests A` | 1 | ~9 s |
+| `A + B + C` (default) | 1 + 6 + 1 = 8 | ~73 s |
+| `--tests A` | 1 | ~9 s |
+| `--tests B --sine-freqs 2.0` | 1 | ~3.5 s |
 
 ### Output layout
 
@@ -311,11 +385,11 @@ All 10 joints in one go (unattended, ~25 min):
 ├── manifest.json          # trial list, achieved rates, results
 ├── run_meta.json          # operator, notes, harness flag
 ├── log.txt
-├── joint_00_hip_yaw_l/
-│   ├── A_kp30_kd0.5_step.npz
+├── joint_00_hip_yaw_l/        # gains = config.yaml per joint (here 55 / 0.30)
+│   ├── A_kp55_kd0.30_step.npz
+│   ├── B_kp55_kd0.30_sine_0.25Hz.npz
 │   ├── …
-│   ├── B_kp30_kd1.0_sine_0.25Hz.npz
-│   └── C_kp30_kd1.0_chirp.npz
+│   └── C_kp55_kd0.30_chirp.npz
 └── joint_09_ankle_pitch_r/…
 ```
 
