@@ -91,6 +91,11 @@ public:
         return state_;
     }
 
+    void set_zero_offset(const std::array<float, kNumJoints>& offset) override {
+        std::lock_guard<std::mutex> g(startq_mu_);
+        for (int i = 0; i < kNumMotors; ++i) startq_[i] = offset[i];
+    }
+
 private:
     void run_group(size_t group_idx) {
         SerialPort& serial = *ports_[group_idx];
@@ -98,6 +103,8 @@ private:
         while (running_) {
             MotorCmdFrame snapshot;
             { std::lock_guard<std::mutex> g(cmd_mu_); snapshot = cmd_; }
+            std::array<float, kNumMotors> sq;
+            { std::lock_guard<std::mutex> g(startq_mu_); sq = startq_; }
             for (int id : ids) {
                 MotorCmd c{};
                 MotorData d{};
@@ -118,12 +125,12 @@ private:
                 c.kp  = snapshot.kp[id] / ratio2;
                 c.kd  = snapshot.kd[id] / ratio2;
                 c.tau = snapshot.tau_ff[id];
-                c.q  = (snapshot.q_target[id] + startq_[id]) * ratio;
+                c.q  = (snapshot.q_target[id] + sq[id]) * ratio;
                 c.dq = snapshot.dq_target[id] * ratio;
                 d.motorType = MotorType::GO_M8010_6;
                 try {
                     serial.sendRecv(&c, &d);
-                    const float q  = d.q  / ratio - startq_[id];
+                    const float q  = d.q  / ratio - sq[id];
                     const float dq = d.dq / ratio;
                     const float t  = d.tau / ratio;
                     std::lock_guard<std::mutex> g(state_mu_);
@@ -140,6 +147,7 @@ private:
     }
 
     std::array<float, kNumMotors> startq_{};
+    std::mutex startq_mu_;
     std::atomic<bool> running_{false};
     std::vector<std::unique_ptr<SerialPort>> ports_;
     std::vector<std::thread> workers_;

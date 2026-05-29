@@ -1,6 +1,7 @@
 #include "user/calibration/loop.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -139,13 +140,103 @@ void CalibrationLoop::send_hold(double settle_s) {
     }
 }
 
+void CalibrationLoop::ramp_to_mgto(double ramp_s) {
+    if (ramp_s <= 0.0) return;
+    const long period_us = static_cast<long>(1e6 / opts_.tick_hz);
+
+    // Prime: hold limp (kp=kd=0) for ~0.2 s so the motor backend's read side
+    // has a fresh state snapshot before we capture the ramp's start pose.
+    // Without this the first read could be stale zeros and the ramp would
+    // snap toward q=0 — exactly the jerk we're trying to avoid.
+    hal::MotorCmdFrame limp{};  // all zeros -> zero torque
+    auto prime_end = clk::now() + std::chrono::milliseconds(200);
+    auto next = clk::now();
+    while (clk::now() < prime_end && !stop_requested_) {
+        motor_->send(limp);
+        motor_->read();
+        next += std::chrono::microseconds(period_us);
+        std::this_thread::sleep_until(next);
+    }
+    if (stop_requested_) return;
+
+    hal::MotorStateFrame start = motor_->read();
+    std::array<float, kNumJoints> q0;
+    for (int i = 0; i < kNumJoints; ++i) q0[i] = start.q[i];
+
+    if (opts_.verbose) {
+        std::printf("[calib] ramp measured pose -> MGTO over %.1f s\n", ramp_s);
+        std::fflush(stdout);
+    }
+
+    auto t0  = clk::now();
+    auto end = t0 + std::chrono::duration_cast<clk::duration>(
+                        std::chrono::duration<double>(ramp_s));
+    next = clk::now();
+    while (clk::now() < end && !stop_requested_) {
+        double t = std::chrono::duration<double>(clk::now() - t0).count();
+        float ratio = static_cast<float>(std::min(t / ramp_s, 1.0));
+        hal::MotorCmdFrame cmd{};
+        for (int i = 0; i < kNumJoints; ++i) {
+            cmd.q_target[i] = (1.f - ratio) * q0[i] + ratio * mgto_.q_target[i];
+            cmd.kp[i] = hold_kp_[i];
+            cmd.kd[i] = hold_kd_[i];
+        }
+        motor_->send(cmd);
+        motor_->read();
+        next += std::chrono::microseconds(period_us);
+        std::this_thread::sleep_until(next);
+    }
+}
+
 void CalibrationLoop::cooldown() {
     if (opts_.verbose) std::printf("[calib] cooldown for %.1f s\n", opts_.cooldown_s);
     send_hold(opts_.cooldown_s);
 }
 
-std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan) {
+void CalibrationLoop::fold(double ramp_s) {
+    const long period_us = static_cast<long>(1e6 / opts_.tick_hz);
+    if (opts_.verbose)
+        std::printf("[calib] folding: releasing gains over %.1f s -> limp\n",
+                    ramp_s);
+
+    if (ramp_s > 0.0) {
+        auto t0  = clk::now();
+        auto end = t0 + std::chrono::duration_cast<clk::duration>(
+                            std::chrono::duration<double>(ramp_s));
+        auto next = clk::now();
+        while (clk::now() < end) {
+            double t = std::chrono::duration<double>(clk::now() - t0).count();
+            float k = 1.f - static_cast<float>(std::min(t / ramp_s, 1.0));  // 1->0
+            hal::MotorCmdFrame cmd{};
+            for (int i = 0; i < kNumJoints; ++i) {
+                cmd.q_target[i] = mgto_.q_target[i];
+                cmd.kp[i] = hold_kp_[i] * k;
+                cmd.kd[i] = hold_kd_[i] * k;
+            }
+            motor_->send(cmd);
+            motor_->read();
+            next += std::chrono::microseconds(period_us);
+            std::this_thread::sleep_until(next);
+        }
+    }
+    // Fully limp.
+    hal::MotorCmdFrame limp{};
+    motor_->send(limp);
+    motor_->read();
+}
+
+std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan,
+                                              bool do_ramp) {
     std::vector<TrialResult> results(plan.size());
+
+    // Bring the robot smoothly to the stand pose (MGTO) before anything else.
+    // send_hold/trials command the full pose with full gains, so without this
+    // the warm-up would snap the joints from wherever they are to MGTO.
+    // Skipped when the caller already ramped (do_ramp=false).
+    if (do_ramp) {
+        ramp_to_mgto(opts_.ramp_in_s);
+        if (stop_requested_) { cooldown(); return results; }
+    }
 
     if (opts_.verbose) std::printf("[calib] warm-up %.1f s at MGTO\n", opts_.warm_up_s);
     send_hold(opts_.warm_up_s);
@@ -293,6 +384,10 @@ std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan) {
     }
 
     cooldown();
+    // Fold at the end: smoothly ramp the gains down to limp (same ramp whether
+    // we finished normally or were aborted — a gentle release beats a sudden
+    // drop from the stand pose).
+    if (opts_.fold_at_end) fold(opts_.fold_s);
     return results;
 }
 
