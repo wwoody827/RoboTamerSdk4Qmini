@@ -55,86 +55,101 @@ Mode 3 and 4 activate the joystick and run `rl_control()` each loop.
 
 ---
 
-## Observation vector (must exactly mirror training)
+## Current policy: V2 stand (May 2026)
+
+`bin/policy.onnx` is `deploy/v2_stand_best/policy.onnx` from `RoboTamer4Qmini`
+(v2_run25 iter 2800, MuJoCo-verified). Stand-only task. **Commands are forced to
+`[0, 0, 0]` regardless of joystick input.** See `deploy/v2_stand_best/DEPLOY.md`
+in the training repo for the authoritative spec.
+
+## Observation vector (V2, 39 dims per step)
 
 Built in `RLController::get_observation()` (`source/user/rl_controller.cpp`).
 
-| Index | Content | Notes |
-|-------|---------|-------|
-| 0 | cmd_vx | forward velocity |
-| 1 | cmd_vy | lateral velocity ← **added April 2026** |
-| 2 | cmd_yaw | yaw rate |
-| 3–4 | roll, pitch | from IMU (base_rpy[0:2]) |
-| 5–7 | angular velocity × 0.5 | base_rpy_rate |
-| 8–17 | joint_pos − ref_joint_pos | |
-| 18–27 | joint_vel × 0.1 | |
-| 28–37 | joint_act − joint_pos | tracking error |
-| 38–41 | sin/cos of phases × static_flag | phase modulator |
-| 42–43 | (freq × 0.3 − 1.0) × static_flag | |
+| Index   | Content                    | Scaling | Source |
+|---------|----------------------------|---------|--------|
+| 0–2     | commands                   | —       | `[0,0,0]` (forced) |
+| 3–5     | base_ang_vel × 0.5         | × 0.5   | body-frame ω (stored in `base_rpy_rate`) |
+| 6–8     | projected_gravity          | —       | `R_world_to_body @ [0,0,-1]` |
+| 9–18    | joint_pos − ref_joint_pos  | —       | 10 joints |
+| 19–28   | joint_vel × 0.1            | × 0.1   | 10 joints |
+| 29–38   | joint_act − joint_pos      | —       | tracking error |
 
-**Total**: 44 dims per step × 3 stacked = 132 input to policy.
+After concat, clip every element to `[-3.0, +3.0]`.
 
-`static_flag` = 1 if `‖[vx, vy, yaw]‖ ≥ 0.15`, else 0.
+## Observation history (V2)
 
-This changed from 43→44 dims when `cmd_vy` was added in April 2026.
-**Policies trained before April 2026 are incompatible** — they expect 43-dim obs.
+- Rolling buffer of **9 frames** (`OBS_BUFFER_LEN`), each 39-dim.
+- Initialized to zeros at boot and on every `reset()` (mode switch).
+- Each policy step: pop oldest, push newest.
+- Network input is **5 frames** sampled at indices `[0, 2, 4, 6, 8]` (skip=2,
+  oldest → newest), concatenated to **195 dims**.
+- The first ~9 policy steps include zero-padded history — intentional, matches
+  training (DEPLOY §5).
 
----
+## Joint order (10 joints, identity `jointIndex2Sim`)
 
-## Commands (joystick mapping)
-
-Set in `RLController::joystick_command_process()`:
-
-| Axis | Stick | Command |
-|------|-------|---------|
-| `Axis[1]` | Left stick Y | `cmd_vx` (negated: push forward → positive) |
-| `Axis[0]` | Left stick X | `cmd_vy` (negated: push left → positive) ← **added April 2026** |
-| `Axis[2]` | Right stick X | `cmd_yaw` (negated) |
-
-Max velocities come from `configParams.vx_cmd_range` and `yr_cmd_range`.
-`cmd_vy` reuses `vx_max` as its limit (same linear velocity scale).
-
-**Yaw correction**: when joystick yaw is near zero and `kp_yaw_ctrl > 0`, the controller holds the heading recorded at the last non-zero yaw command. This prevents slow drift while walking straight.
+```
+[hip_yaw_L, hip_roll_L, hip_pitch_L, knee_L, ankle_L,
+ hip_yaw_R, hip_roll_R, hip_pitch_R, knee_R, ankle_R]
+```
 
 ---
 
-## `target_command` type history
+## Commands (V2 stand: ignored)
 
-- **Before April 2026**: `Vec2<float>` = `[vx, yaw]`
-- **After April 2026**: `Vec3<float>` = `[vx, vy, yaw]`
+`joystick_command_process()` still runs (it updates `target_command` for
+telemetry/logging), but **`get_observation()` zeroes the command slot before
+inserting it into the obs vector**. The joystick has no effect on the policy in
+V2 stand mode.
 
-This change cascades to:
-1. `get_observation()` — `target_command` is the first element of the obs vector
-2. `static_flag` check — now uses 3D norm
-3. `joystick_command_process()` — now reads 3 axes
+The joystick mapping itself is unchanged from the BIRL-era code in case a
+walking policy is plugged in later.
 
 ---
 
 ## Config params (loaded from YAML in `bin/`)
 
-Key fields used by RLController:
+Key fields used by RLController for V2:
 
 | Field | Purpose |
 |-------|---------|
-| `num_observations` | Per-step obs dim (must be 44) |
-| `num_actions` | Policy output dim (12) |
-| `num_stacks` | History frames (3) |
-| `vx_cmd_range` | `[min, max]` forward velocity |
-| `yr_cmd_range` | `[min, max]` yaw rate |
-| `kp_yaw_ctrl` | Heading correction gain (0 = disabled) |
+| `num_observations` | Network input dim (195 = 39 × 5) |
+| `num_actions` | Policy output dim (10) |
+| `num_stacks` | Must be 1 — stacking is done inside RLController |
 | `ref_joint_act` | Standing pose joint positions |
-| `kp`, `kd` | PD gains per joint |
-| `act_inc_low/high` | Action scaling bounds |
+| `kp`, `kd` | Standard PD gains (V2: hip_yaw 55, hip_roll 105, hip_pitch 75, knee 45, ankle 30) |
+| `residual_low/high` | Per-joint residual range (V2: ±0.5 rad) |
+| `action_lowpass_alpha` | EMA factor on the residual (V2: 0.75) |
+| `act_pos_low/high` | Joint position clip (URDF limits) |
+| `vx_cmd_range`, `yr_cmd_range`, `kp_yaw_ctrl` | Unused in V2 stand — kept for future walking policies |
+| `act_inc_low/high` | Legacy BIRL field — unused by V2 but still loaded |
 
 ---
 
-## Torque formula (must match training)
+## Action transform (V2 residual mode)
+
+In `RLController::apply_residual_action()`:
 
 ```
-torque = kp × (target − pos) + kd_bias − vel + joint_offset − 3.5 × sign(vel) × vel_sign
+clipped   = clip(net_out, -1, 1)
+offset    = clipped * scale + bias    // scale=(high-low)/2, bias=(high+low)/2
+lp_target = alpha * offset + (1-alpha) * lp_target_prev
+joint_act = ref_joint_pos + lp_target
+joint_act = clip(joint_act, act_pos_low, act_pos_high)
 ```
 
-`kd` is a **constant bias**, not velocity-proportional. `−vel` provides the actual damping (unit gain). This unusual formulation must match `legged_robot.py` in the training repo exactly.
+`_lp_target` is persisted across policy steps and **reset to zero (not to
+ref_joint_pos) on every `reset()`**.
+
+## Torque (delegated to motor driver)
+
+The Unitree GO_M8010_6 motor driver runs `τ = kp*(q_target - q) - kd*dq`
+internally at high rate. The SDK passes `q_target`, `kp`, `kd` per joint and
+sets `tau_ff = 0`, `dq_target = 0`. No custom torque formula in the SDK loop.
+
+(Earlier BIRL training used a non-standard formula with kd as a constant bias
+plus a velocity-sign term — that's **gone** in V2. Standard PD only.)
 
 ---
 
@@ -171,4 +186,4 @@ V2 static-stand rewards were ported from `~/code/RoboTamer4Qmini/envs/v2_stand_e
    ```
 4. Verify `num_observations: 215` (= 43 per-step × 5 stack) in SDK config YAML.
 5. Rebuild if C++ obs builder changed.
-5. Run `./run_interface`
+6. Run `./run_interface`

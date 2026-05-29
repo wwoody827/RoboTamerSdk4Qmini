@@ -1,4 +1,4 @@
-#User config params
+#User config params — V2 stand policy (v2_run25 iter 2800)
 
 #motor zero offsets (applied as: q = raw/ratio - startq[i])
 #             idx:  0      1      2     3     4      5      6      7     8     9
@@ -6,37 +6,45 @@
 startq: [0.870, 0.274, 0.167, 0.547, 0.882, 0.496, 0.036, 0.676, 0.069, 0.241]
 
 #obs and act spaces
-num_actions: 12
-num_observations: 44
-num_stacks: 3
+# V2: per-step obs = 39, 5-frame history (skip=2, buffer length 9), final input = 195
+# stacking is done inside RLController, so num_stacks stays 1
+num_actions: 10
+num_observations: 195
+num_stacks: 1
 
+# policy at 66.7 Hz (decimation=15 × simulation_dt=0.001)
 control_dt: 0.015
-#joint position increments limits
-act_inc_high: [ 3.5,  15. ] # f*2+(leg*5)*2+torso*1+(arm*4)*2
-act_inc_low: [ 0.5, -15. ]
 
-#target command ranges
+#V2 residual action mode: net_out ∈ [-1,1] → offset = net_out * 0.5 (rad)
+#low-pass: lp_target = alpha * offset + (1-alpha) * lp_target_prev
+action_lowpass_alpha: 0.75
+residual_low:  [ -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5 ]
+residual_high: [  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5 ]
+
+#legacy BIRL increment limits — unused by V2 but kept so config.h still loads
+act_inc_high: [ 3.5,  15. ]
+act_inc_low:  [ 0.5, -15. ]
+
+#target command ranges (V2 stand task forces commands=[0,0,0] regardless)
 vx_cmd_range: [ -0.3, 0.5 ] #m/s
-yr_cmd_range: [ -1., 1. ]  #rad/s
-kp_yaw_ctrl: 2.
+yr_cmd_range: [ -1., 1. ]   #rad/s
+kp_yaw_ctrl: 0.
 
-#reference joint action
+#reference joint pose (matches manifest)
 sin_joint_idx: 1
 use_sim_gait: false
 ref_joint_act: [ 0.4, -0.1, -1.5, 1., -1.3,  -0.4, 0.1, 1.5, -1., 1.3 ]
 
-
-#joint position limits
-act_pos_low: [ -0.1, -0.3, -2.1, 0, -2.5,   -0.7, -0.6, 0, -2.1, 0 ]
-act_pos_high: [ 0.7, 0.6,  0.,  2.1, 0,      0.1,  0.3, 2.1, 0, 2.5 ]
+#joint position limits (URDF) — used to clip joint_target
+act_pos_low:  [ -0.1, -0.3, -2.1,  0,   -2.5,   -0.7, -0.6,  0,   -2.1,  0   ]
+act_pos_high: [  0.7,  0.6,  0.,   2.1,  0,      0.1,  0.3,  2.1,  0,    2.5 ]
 
 #motor stiffness and damping
-# for soft control
-kp_soft: [ 0.,0.,0.,0.,0. , 0.,0.,0.,0.,0. ] #(hip*3+knee*1+ankle*1)*2
-kd_soft: [ 0.,0.,0.,0.,0., 0.,0.,0.,0.,0. ] #(hip*3+knee*1+ankle*1)*2
+# for soft control (mode '1')
+kp_soft: [ 0.,0.,0.,0.,0. , 0.,0.,0.,0.,0. ]
+kd_soft: [ 0.,0.,0.,0.,0. , 0.,0.,0.,0.,0. ]
 
-# for position stand and rl control
-kp: [ 1,0.5, 1.5, 1,1 , 1,0.5,1.5,1,1 ] #(hip*3+knee*1+ankle*1)*2
-kd: [ 0.05,0.05,0.05,0.05,0.05, 0.05,0.05,0.05,0.05,0.05 ] #(hip*3+knee*1+ankle*1)*2
-
-
+# V2 PD gains — standard PD (no torque bias, no kd-as-bias)
+#         HYL   HRL   HPL  KL   AL    HYR   HRR   HPR  KR   AR
+kp: [ 55.0, 105.0, 75.0, 45.0, 30.0,  55.0, 105.0, 75.0, 45.0, 30.0 ]
+kd: [  0.3,   2.5,  0.3,  0.5,  0.25,  0.3,   2.5,  0.3,  0.5,  0.25 ]

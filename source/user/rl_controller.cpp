@@ -5,8 +5,10 @@ void RLController::init() {
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "q1");
     Ort::SessionOptions session_options;
     motion_session = new Ort::Session(env, "policy.onnx", session_options);
-    _offset_joint_act.setZero();
-    onnxInference.init(configParams.num_observations, configParams.num_actions, configParams.num_stacks);
+
+    // network sees a flat 195-dim input; stacking is done here, so stack_dim = 1
+    onnxInference.init(configParams.num_observations, configParams.num_actions, 1);
+
     jointIndex2Sim << 0, 1, 2, 3, 4, 5, 6, 7, 8, 9;
     base_rpy.setZero();
     base_vel.setZero();
@@ -18,10 +20,8 @@ void RLController::init() {
     base_quat << 1, 0, 0, 0;
     base_rpy_rate.setZero();
     target_command.setZero();
+    projected_gravity << 0, 0, -1;
     joint_pos_error.setZero();
-    pm_f.setConstant(0.5f);
-    _pm_phase << 0, 0;
-    pm_phase_sin_cos.setZero();
     action_increment.resize(onnxInference.output_dim);
     action_increment.setZero();
 
@@ -33,22 +33,31 @@ void RLController::init() {
         _kd[i] = configParams.kd.at(i);
         _kp_soft[i] = configParams.kp_soft.at(i);
         _kd_soft[i] = configParams.kd_soft.at(i);
+        _residual_low[i]  = configParams.residual_low.at(i);
+        _residual_high[i] = configParams.residual_high.at(i);
     }
+    _action_alpha = configParams.action_lowpass_alpha;
+    _lp_target.setZero();
     joint_act = _ref_joint_act;
-    observation.resize(onnxInference.input_dim * onnxInference.stack_dim);
-    observation.setZero();
-    obs_stack.resize(onnxInference.stack_dim);
-    for (int i(0); i < onnxInference.stack_dim; i++)obs_stack.at(i).resize(onnxInference.input_dim);
-    for (int i(0); i < onnxInference.stack_dim; i++)obs_stack.at(i).setZero(onnxInference.input_dim);
 
+    observation.resize(OBS_HIST * OBS_DIM_PER_STEP);
+    observation.setZero();
+    _obs_buffer.clear();
+    for (int i = 0; i < OBS_BUFFER_LEN; ++i)
+        _obs_buffer.push_back(Matrix<float, Dynamic, 1>::Zero(OBS_DIM_PER_STEP));
 }
 
 void RLController::reset(bool is_test_local) {
-    pm_f.setConstant(0.5f);
-    _pm_phase << 0, 0;
     target_command.setZero();
     _is_first_run = true;
     counter_rl = 0;
+
+    // V2: lp_target and obs buffer reset to zeros at boot/mode switch
+    _lp_target.setZero();
+    _obs_buffer.clear();
+    for (int i = 0; i < OBS_BUFFER_LEN; ++i)
+        _obs_buffer.push_back(Matrix<float, Dynamic, 1>::Zero(OBS_DIM_PER_STEP));
+
     if (is_test_local) {
         init_joint_act = joint_act;
         joint_pos = joint_act;
@@ -56,10 +65,12 @@ void RLController::reset(bool is_test_local) {
         convert_dds_state2rl_state();
         joint_act = joint_pos;
         init_joint_act = joint_pos;
-        _record_yaw = base_rpy[2];//todo
+        _record_yaw = base_rpy[2];
         cout << "Reset done! Rpy: " << base_rpy.transpose() << endl;
     }
-    auto o = get_observation();
+    // V2: do NOT prime the buffer here. DEPLOY §5 specifies the first policy
+    // step sees buffer = 8 zeros + 1 real frame — that happens naturally on
+    // the first rl_control() call.
 }
 
 
@@ -67,71 +78,77 @@ void RLController::rl_control() {
     counter_rl++;
     Matrix<float, Dynamic, 1> net_out;
     net_out = onnxInference.inference(motion_session, get_observation());
-    action_increment = transform(net_out);
-    joint_increment_control(action_increment);
+    apply_residual_action(net_out);
     _rl_time_step = get_true_loop_period();
 }
 
-void RLController::joint_increment_control(Matrix<float, Dynamic, 1> increment) {
-    pm_f = increment.segment(0, NUM_LEGS);
-    compute_pm_phase(pm_f);
-    joint_act.segment(0, NUM_ACTUAT_JOINTS) += increment.segment(NUM_LEGS, NUM_ACTUAT_JOINTS) * _rl_time_step;
+// V2 residual action mode (DEPLOY.md §3):
+//   offset    = clip(net_out, -1, 1) * 0.5            // residual range ±0.5 rad
+//   lp_target = alpha * offset + (1 - alpha) * lp_target_prev
+//   joint_act = ref_joint_pos + lp_target             // clipped to URDF limits
+// _lp_target is initialized to zeros at boot/reset, not to ref_joint_pos.
+void RLController::apply_residual_action(const Matrix<float, Dynamic, 1> &net_out) {
+    Vec10<float> clipped = net_out.head(NUM_ACTUAT_JOINTS).cwiseMax(-1.f).cwiseMin(1.f);
+    // action_increment is preserved as the raw post-clip net output for logging
+    // (data_report.h reads it). Old BIRL semantics (joint position increment)
+    // no longer apply — it's just the policy's pre-residual-scaling action.
+    action_increment.head(NUM_ACTUAT_JOINTS) = clipped;
+    Vec10<float> offset;
+    for (int i = 0; i < NUM_ACTUAT_JOINTS; ++i) {
+        float scale = 0.5f * (_residual_high[i] - _residual_low[i]);
+        float bias  = 0.5f * (_residual_high[i] + _residual_low[i]);
+        offset[i] = clipped[i] * scale + bias;
+    }
+    _lp_target = _action_alpha * offset + (1.f - _action_alpha) * _lp_target;
+    joint_act = _ref_joint_act + _lp_target;
     joint_act = joint_act.cwiseMax(act_pos_low).cwiseMin(act_pos_high);
-    // cout << "joint_act: " << joint_act.transpose() << endl;
-    // exit(1);
 }
 
 
 Matrix<float, Dynamic, 1> RLController::get_observation() {
-    Matrix<float, Dynamic, 1> obs;
-    Vec2<float> con_1;
-    con_1.setOnes();
-    obs.resize(onnxInference.input_dim);
+    Matrix<float, Dynamic, 1> obs(OBS_DIM_PER_STEP);
     obs.setZero();
-    pthread_mutex_lock(&_rl_state_mutex);
-    joint_pos_error = joint_act - joint_pos;
-    for (int i(0); i < NUM_LEGS; i++) {
-        pm_phase_sin_cos(i) = sin(_pm_phase[i]);
-        pm_phase_sin_cos(NUM_LEGS + i) = cos(_pm_phase[i]);
-    }
-    joystick_command_process();
-    if (sqrt(pow(target_command(0), 2) + pow(target_command(1), 2) + pow(target_command(2), 2)) < 0.15)
-        static_flag = 0.f;
-    else
-        static_flag = 1.f;
-    obs << target_command,
-            base_rpy.segment(0, 2),
-            base_rpy_rate * 0.5,
-            joint_pos.segment(0, NUM_ACTUAT_JOINTS) - _ref_joint_act,
-            joint_vel.segment(0, NUM_ACTUAT_JOINTS) * 0.1f,
-            joint_pos_error.segment(0, NUM_ACTUAT_JOINTS),
-            pm_phase_sin_cos * static_flag,
-            (pm_f * 0.3 - con_1) * static_flag;
-    obs = obs.cwiseMax(-3.).cwiseMin(3.);
 
+    pthread_mutex_lock(&_rl_state_mutex);
+
+    // Commands: V2 stand task always sees zeros. joystick_command_process still
+    // runs so debug telemetry stays live, but its output is discarded for obs.
+    joystick_command_process();
+    Vec3<float> obs_command = Vec3<float>::Zero();
+
+    // projected_gravity = R_world_to_body * [0, 0, -1] (body-frame gravity).
+    // ori::rpy_to_rotMat returns R_world_to_body, so convert_world_frame_to_base_frame
+    // is exactly this transformation.
+    Vec3<float> gravity_world(0.f, 0.f, -1.f);
+    projected_gravity = convert_world_frame_to_base_frame(gravity_world, base_rpy);
+
+    // tracking_err = current_joint_act (commanded target) - joint_pos (measured)
+    joint_pos_error = joint_act - joint_pos;
+
+    obs << obs_command,                                     // 3
+           base_rpy_rate * 0.5f,                            // 3
+           projected_gravity,                               // 3
+           (joint_pos - _ref_joint_act),                    // 10
+           joint_vel * 0.1f,                                // 10
+           joint_pos_error;                                 // 10
+    obs = obs.cwiseMax(-3.f).cwiseMin(3.f);
 
     pthread_mutex_unlock(&_rl_state_mutex);
-    if (int(observation.size()) != onnxInference.input_dim * onnxInference.stack_dim) {
-        cout << "The dimension of the input size observation is error!!!" << endl;
-        cout << "True state size:" << observation.size() << "Policy input size:" << onnxInference.input_dim * onnxInference.stack_dim << endl;
-        exit(1);
-    }
 
+    // Rolling 9-frame buffer (FIFO). On the very first call after reset() the
+    // buffer is already zero-filled, so the first ~9 policy steps include
+    // partial zero history — intentional and matches training (DEPLOY §5).
+    _obs_buffer.pop_front();
+    _obs_buffer.push_back(obs);
     if (_is_first_run) {
-        for (int i(0); i < onnxInference.stack_dim; i++) {
-            obs_stack.erase(obs_stack.begin());
-            obs_stack.push_back(obs);
-        }
         _is_first_run = false;
         cout << endl << "Reset observation history: Done!" << endl;
-    } else {
-        obs_stack.erase(obs_stack.begin());
-        obs_stack.push_back(obs);
     }
-    for (int i(0); i < onnxInference.stack_dim; i++) {
-        for (int j(0); j < onnxInference.input_dim; j++) {
-            observation[onnxInference.input_dim * i + j] = obs_stack.at(i)[j];
-        }
+
+    // Sample frames at strides of OBS_SKIP, oldest → newest: [0,2,4,6,8].
+    for (int i = 0; i < OBS_HIST; ++i) {
+        observation.segment(i * OBS_DIM_PER_STEP, OBS_DIM_PER_STEP) =
+                _obs_buffer[i * OBS_SKIP];
     }
     return observation;
 }
@@ -148,8 +165,8 @@ void RLController::joystick_command_process() {
         vy_cmd = -vx_max * jsreader->Axis[0];  // left stick X → left/right
         yr_cmd = -yr_max * jsreader->Axis[2];  // right stick X → yaw
 
-        if (fabs(yr_cmd) > 0.1 or configParams.kp_yaw_ctrl < 1e-2 or static_flag < 0.1) {
-            _record_yaw = base_rpy[2];//todo
+        if (fabs(yr_cmd) > 0.1 or configParams.kp_yaw_ctrl < 1e-2) {
+            _record_yaw = base_rpy[2];
         } else {
             yr_cmd = configParams.kp_yaw_ctrl * smallest_signed_angle_between(base_rpy[2], _record_yaw);
         }
@@ -200,29 +217,6 @@ void RLController::convert_dds_state2rl_state() {
         }
     }
     counter_print++;
-}
-
-
-void RLController::compute_pm_phase(Vec2<float> f) {
-    for (int leg(0); leg < NUM_LEGS; leg++) {
-        _pm_phase[leg] += 2. * M_PI * f[leg] * _rl_time_step;
-        _pm_phase[leg] = fmod(_pm_phase[leg], 2 * M_PI);
-    }
-}
-
-Matrix<float, Dynamic, -1> RLController::transform(Matrix<float, Dynamic, -1> data) {
-    auto net = (data.array() + 1.) / 2.;
-    int ii = 0;
-    for (int i(0); i < onnxInference.output_dim; i++) {
-        if (i < NUM_LEGS)
-            ii = 0;
-        else if (i < NUM_LEGS + NUM_ACTUAT_JOINTS + 1)
-            ii = 1;
-        else
-            ii = 2;
-        action_increment(i) = net(i) * (configParams.act_inc_high[ii] - configParams.act_inc_low[ii]) + configParams.act_inc_low[ii];
-    }
-    return action_increment;
 }
 
 

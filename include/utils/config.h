@@ -41,6 +41,14 @@ public:
         act_pos_low = params["act_pos_low"].as < std::vector < float > > ();
 
         ref_joint_act = params["ref_joint_act"].as < std::vector < float > > ();
+
+        // V2 residual action mode
+        if (params["action_lowpass_alpha"])
+            action_lowpass_alpha = params["action_lowpass_alpha"].as<float>();
+        if (params["residual_low"])
+            residual_low = params["residual_low"].as<std::vector<float>>();
+        if (params["residual_high"])
+            residual_high = params["residual_high"].as<std::vector<float>>();
     }
 
 public:
@@ -71,6 +79,10 @@ public:
 
     std::vector<float> ref_joint_act = {0.};
 
+    // V2 residual action mode
+    float action_lowpass_alpha = 0.75f;
+    std::vector<float> residual_low  = {-0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f};
+    std::vector<float> residual_high = { 0.5f,  0.5f,  0.5f,  0.5f,  0.5f,  0.5f,  0.5f,  0.5f,  0.5f,  0.5f};
 };
 
 #endif

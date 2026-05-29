@@ -13,6 +13,7 @@
 #include "unitree/g1/joystick.hpp"
 #include <time.h>
 #include <sys/time.h>
+#include <deque>
 #include "joystick_reader.h"
 
 class RLController {
@@ -27,15 +28,19 @@ public:
     float _rl_time_step = 0.01f;
     vector <vector<float>> sim_gait_data;
     float _record_yaw = 0.;
-    float static_flag = 0.f;
 
     static const int NUM_LEGS = 2;
     static const int NUM_JOINTS = 10;
     static const int NUM_ACTUAT_JOINTS = 10;
 
+    // V2 observation layout
+    static const int OBS_DIM_PER_STEP = 39;   // commands(3)+ang_vel(3)+grav(3)+jp_err(10)+jv(10)+jt_err(10)
+    static const int OBS_HIST = 5;            // history frames sampled into network input
+    static const int OBS_SKIP = 2;            // sampling stride from rolling buffer
+    static const int OBS_BUFFER_LEN = (OBS_HIST - 1) * OBS_SKIP + 1;  // = 9
+
     Vec3<float> target_command;
-    Vec2<float> pm_f;
-    Vec4<float> pm_phase_sin_cos;
+    Vec3<float> projected_gravity;
     Vec3<float> base_rpy, base_rpy_rate, base_vel, base_acc;
     Vec4<float> base_quat;
 
@@ -62,24 +67,26 @@ public:
 private:
     Vec10<int> jointIndex2Sim;
 
-    Vec2<float> _pm_phase;
-    Vec10<float> _ref_joint_act, _offset_joint_act;
+    Vec10<float> _ref_joint_act;
+
+    // V2 residual action mode state — persisted across policy steps
+    Vec10<float> _lp_target;
+    Vec10<float> _residual_low, _residual_high;
+    float _action_alpha = 0.75f;
+
+    // V2 observation buffer: 9 frames of 39-dim obs, sampled at [0,2,4,6,8]
+    std::deque<Matrix<float, Dynamic, 1>> _obs_buffer;
 
     OnnxInference onnxInference;
     Ort::Session *motion_session = nullptr;
     pthread_mutex_t _rl_state_mutex{};
     Vec10<float> act_pos_low, act_pos_high;
-    std::vector <Matrix<float, Dynamic, 1>> obs_stack;
 
     float smallest_signed_angle_between(float alpha, float beta);
 
-    void joint_increment_control(Matrix<float, Dynamic, 1> increment);
-
-    void compute_pm_phase(Vec2<float> f);
+    void apply_residual_action(const Matrix<float, Dynamic, 1> &net_out);
 
     Matrix<float, Dynamic, 1> get_observation();
-
-    Matrix<float, Dynamic, -1> transform(Matrix<float, Dynamic, -1> data);
 
     float exp_filter(float history, float present, float weight);
 
