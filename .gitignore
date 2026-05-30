@@ -46,4 +46,4 @@ __pycache__/
 .claude/
 bin/probe_modes
 bin/dynamic_zero.yaml
-bin/ref_offset.yaml
+bin/ref_pose_calibrated.yaml

@@ -62,8 +62,12 @@ void print_usage(const char* prog) {
         "\n"
         "Reference-pose calibration. Body stays level, feet stay flat.\n"
         "Operator adjusts (dx_foot, dy_foot) with arrow keys; the tool\n"
-        "runs IK and slews the joints to the new pose. Writes a 10-vector\n"
-        "of joint deltas to bin/ref_offset.yaml on Enter.\n"
+        "runs IK and slews the joints to the new pose. On Enter, writes a\n"
+        "CALIBRATION RECORD (absolute joint values) to a yaml file.\n"
+        "\n"
+        "The output is informational only — nothing in the SDK auto-loads\n"
+        "it. Copy the `ref_joint_act` list into bin/config.yaml manually if\n"
+        "you decide to adopt the calibrated pose.\n"
         "\n"
         "Keys (raw terminal):\n"
         "  ↑ / ↓     dx_foot ±2 mm  (move BOTH feet fwd / back)\n"
@@ -207,31 +211,56 @@ private:
 // YAML writer for the offset file.
 // ---------------------------------------------------------------------------
 
-bool write_ref_offset_yaml(const std::string& path,
-                           const std::array<float, kNumJoints>& dq,
-                           double dx_foot_m, double dy_foot_m,
-                           const float imu_rpy_mean[3],
-                           float imu_rpy_std,
-                           const std::string& note) {
+bool write_ref_pose_yaml(const std::string& path,
+                         const std::array<float, kNumJoints>& ref_q_old,
+                         const std::array<float, kNumJoints>& dq,
+                         double dx_foot_m, double dy_foot_m,
+                         const float imu_rpy_mean[3],
+                         float imu_rpy_std,
+                         const std::string& note) {
     std::ofstream f(path);
     if (!f) return false;
     std::time_t t = std::time(nullptr);
     std::tm tm{}; localtime_r(&t, &tm);
     char tbuf[32]; std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%dT%H:%M:%S", &tm);
-    f << "# Reference-pose offset, written by ref_calibration_tool.\n"
-      << "# 10-vector of joint angle DELTAS to add to ref_joint_act at deploy.\n"
-      << "# Computed via inverse kinematics from (dx_foot_m, dy_foot_m) with\n"
-      << "# body level and feet flat on the floor. See COM_CALIBRATION_SPEC.md.\n"
-      << "# Stacks ADDITIVELY on top of dynamic_zero.yaml.\n"
-      << "ref_offset:\n";
+
+    // Absolute joint angles = old ref_joint_act + IK delta.
+    std::array<float, kNumJoints> ref_q_new{};
+    for (int i = 0; i < kNumJoints; ++i) ref_q_new[i] = ref_q_old[i] + dq[i];
+
+    f << "# Calibrated reference pose, written by ref_calibration_tool.\n"
+      << "#\n"
+      << "# This file is a CALIBRATION RECORD, not a runtime config. Nothing\n"
+      << "# in the SDK auto-loads it. To use the result, manually copy the\n"
+      << "# `ref_joint_act` list below into bin/config.yaml.\n"
+      << "#\n"
+      << "# Order: HYL HRL HPL KL AL  HYR HRR HPR KR AR\n"
+      << "# Computed via inverse kinematics from (dx_foot, dy_foot) with the\n"
+      << "# body kept level and feet kept flat. See COM_CALIBRATION_SPEC.md.\n"
+      << "ref_joint_act: [ ";
     for (int i = 0; i < kNumJoints; ++i) {
-        f << "  " << kJointNames[i] << ": " << dq[i] << "\n";
+        f << std::fixed << std::setprecision(4) << ref_q_new[i];
+        if (i + 1 < kNumJoints) f << ", ";
+        if (i == 4) f << "\n                 ";   // line break between L and R
     }
-    f << "meta:\n"
+    f << " ]\n"
+      << "meta:\n"
       << "  date: " << tbuf << "\n"
       << "  method: foot_translation_ik\n"
       << "  dx_foot_m: " << dx_foot_m << "\n"
       << "  dy_foot_m: " << dy_foot_m << "\n"
+      << "  ref_joint_act_baseline: [ ";
+    for (int i = 0; i < kNumJoints; ++i) {
+        f << std::fixed << std::setprecision(4) << ref_q_old[i];
+        if (i + 1 < kNumJoints) f << ", ";
+    }
+    f << " ]\n"
+      << "  delta_from_baseline: [ ";
+    for (int i = 0; i < kNumJoints; ++i) {
+        f << std::fixed << std::setprecision(4) << dq[i];
+        if (i + 1 < kNumJoints) f << ", ";
+    }
+    f << " ]\n"
       << "  imu_rpy_mean_at_balance: [" << imu_rpy_mean[0] << ", "
       << imu_rpy_mean[1] << ", " << imu_rpy_mean[2] << "]\n"
       << "  imu_rpy_std: " << imu_rpy_std << "\n"
@@ -386,7 +415,7 @@ int main(int argc, char** argv) {
     int    step_mm = 2;
     int    max_mm  = 50;
     int    slew_ms = 200;
-    std::string out_path = "ref_offset.yaml";
+    std::string out_path = "ref_pose_calibrated.yaml";
     std::string dynzero_path = "dynamic_zero.yaml";
     std::string mjcf_path;
     std::string iface = "eth0";
@@ -802,8 +831,9 @@ int main(int argc, char** argv) {
                 }
                 rpy_std = std::sqrt(std::max(0.f, var / 3.f));
             }
-            if (write_ref_offset_yaml(out_path, target_dq, dx_foot, dy_foot,
-                                      rpy_mean, rpy_std, "")) {
+            if (write_ref_pose_yaml(out_path, ref_q, target_dq,
+                                    dx_foot, dy_foot,
+                                    rpy_mean, rpy_std, "")) {
                 std::printf("[ref-cal] wrote %s\n", out_path.c_str());
                 std::printf("[ref-cal] dx_foot=%+.4f m  dy_foot=%+.4f m\n",
                             dx_foot, dy_foot);

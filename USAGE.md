@@ -222,18 +222,6 @@ Requires `WITH_ONNX=ON` at configure time. The default
 or reconfigure with `-DWITH_ONNX=ON`. `bin/policy.onnx` is loaded by
 default if no `--policy` is given.
 
-### Reference-pose offset (`bin/ref_offset.yaml`)
-
-If the hardware CoM doesn't match the URDF (e.g. heavier head, battery
-moved), the robot tips at MGTO. `bin/ref_offset.yaml` — written by
-`ref_calibration_tool` (see §5) — is loaded at startup and adds a
-joint-angle delta that translates the feet without tilting the body, so
-the *real* robot's foot polygon ends up under its *real* CoM. The
-observation seen by the policy is unchanged (the offset is subtracted
-back out before obs), so the trained policy still sees its training
-MGTO. Stacks additively on `dynamic_zero.yaml`. Delete the file to
-revert.
-
 ---
 
 ## 5. `pd_calibration_tool`
@@ -430,8 +418,10 @@ operator reviews `calibration.yaml` and hand-updates
 
 Finds the foot-position offset that puts the robot's CoM over its foot
 polygon, so it stands stably at MGTO. Writes the result to
-`bin/ref_offset.yaml`, which `run_interface` auto-loads at startup
-(stacks additively on `dynamic_zero.yaml`).
+`bin/ref_pose_calibrated.yaml` as **absolute joint values**. This is a
+calibration record only — `run_interface` does NOT auto-load it. The
+operator inspects the file and manually copies the new `ref_joint_act`
+into `bin/config.yaml` if they want to adopt the calibrated pose.
 
 ### Why you need this
 
@@ -443,9 +433,14 @@ the policy can take over.
 
 This tool lets the operator translate both feet in the body frame to
 find a stable pose, while keeping the body level and the feet flat —
-all via an inverse kinematics solver. The observation seen by the
-policy stays centered on the original MGTO (the offset is subtracted
-back out before obs), so the trained policy still works.
+all via an inverse kinematics solver. On Enter it writes a calibration
+record (`bin/ref_pose_calibrated.yaml`) containing the absolute joint
+values at the chosen pose.
+
+**The SDK does not auto-load this file.** Inspect the result, decide
+whether to adopt the new pose, and if so, manually copy the
+`ref_joint_act` list into `bin/config.yaml`. The calibration record is
+purely a measurement artifact.
 
 ### Dry-run in sim (recommended first)
 
@@ -481,7 +476,7 @@ phase gated by an explicit prompt (mirrors `pd_calibration_tool`):
    Operator verifies the standing pose looks right before any further
    motion.
 5. **Operator pose-tuning loop**. Arrow keys adjust `(dx_foot, dy_foot)`;
-   `Enter` writes `ref_offset.yaml`.
+   `Enter` writes `ref_pose_calibrated.yaml` (absolute joint values).
 
 On real hardware, hold the robot during phase 1 (limp), place it on
 the ground before phase 2, and keep the e-stop in reach throughout.
@@ -497,7 +492,10 @@ Operator workflow once in phase 5:
 4. Each arrow press shifts the feet by 2 mm (default) and the joints
    slew over 200 ms. Keep adjusting until the IMU rpy mean settles
    near zero.
-5. Press `Enter` to write `bin/ref_offset.yaml`.
+5. Press `Enter` to write `bin/ref_pose_calibrated.yaml`. Inspect the
+   file; if you're happy with the result, copy the `ref_joint_act`
+   block into `bin/config.yaml`. The SDK will pick up the new pose on
+   the next `run_interface` boot.
 
 ### Keys (raw terminal — no Enter needed per key)
 
@@ -538,7 +536,7 @@ Operator loop:
 --step-mm <int>     ±step per arrow press (default 2)
 --max-mm <int>      absolute cap on |dx|, |dy| (default 50)
 --slew-ms <int>     slew time per key press (default 200 ms)
---out <path>        output yaml (default bin/ref_offset.yaml)
+--out <path>        output yaml (default bin/ref_pose_calibrated.yaml)
 --dynamic-zero <p>  encoder zero file to load (default bin/dynamic_zero.yaml)
 ```
 
@@ -551,48 +549,43 @@ Backend:
 --tick-hz <hz>      control rate (default = 1/cfg.control_dt)
 ```
 
-### Stacks with `dynamic_zero.yaml` and `config.yaml`
-
-The tool reads (in order):
+### What the tool reads
 
 1. `config.yaml::startq` — factory zero, applied inside the HAL
 2. `dynamic_zero.yaml::dynamic_zero` — runtime re-zero, applied
    above the HAL (subtracted from observed q, added to commanded q)
 3. `config.yaml::ref_joint_act` — MGTO joint values used as IK seed
+   and the baseline the operator's `(dx, dy)` is measured from
 4. `config.yaml::kp` / `kd` — PD gains used for ramp and hold
-
-The output `ref_offset.yaml` is **independent** — it's loaded by
-`qmini_app` at deploy time and stacks additively on `dynamic_zero`.
-At deploy: physical pose = `ref_joint_act + ref_offset + dynamic_zero
-+ startq` (and `startq` is in the HAL's gear-ratio conversion).
 
 ### Output
 
-`bin/ref_offset.yaml`:
+`bin/ref_pose_calibrated.yaml`:
 
 ```yaml
-ref_offset:
-  hip_yaw_l: 0.0
-  hip_roll_l: 0.0            # always 0 (foot-flat constraint)
-  hip_pitch_l: -0.103
-  knee_l:     -0.006
-  ankle_l:     0.097
-  hip_yaw_r:  0.0
-  hip_roll_r: 0.0
-  hip_pitch_r: 0.103
-  knee_r:      0.006
-  ankle_r:    -0.097
+# Calibrated reference pose, written by ref_calibration_tool.
+#
+# This file is a CALIBRATION RECORD, not a runtime config. Nothing in
+# the SDK auto-loads it. To use the result, manually copy the
+# `ref_joint_act` list below into bin/config.yaml.
+ref_joint_act: [ 0.4000, -0.1000, -1.4727,  1.0177, -1.2248,
+                -0.4000,  0.1000,  1.4727, -1.0177,  1.2248 ]
 meta:
   date: 2026-05-30T14:22:01
   method: foot_translation_ik
   dx_foot_m: 0.020
   dy_foot_m: 0.000
+  ref_joint_act_baseline: [ 0.4000, -0.1000, -1.5000, ... ]
+  delta_from_baseline:    [ 0.0000,  0.0000,  0.0273, ... ]
   imu_rpy_mean_at_balance: [0.001, -0.008, 0.0]
   imu_rpy_std: 0.011
 ```
 
-The `meta` section is informational; only `ref_offset` is loaded at
-deploy time. Delete the file to revert to the URDF-nominal MGTO.
+`ref_joint_act` is the absolute joint pose at the operator's final
+key press. `ref_joint_act_baseline` is what `config.yaml` said when
+the tool started, and `delta_from_baseline` is the IK adjustment. The
+operator inspects the file and decides whether to copy `ref_joint_act`
+into `bin/config.yaml`.
 
 ### Constraints enforced by the IK
 

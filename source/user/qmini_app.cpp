@@ -42,7 +42,6 @@ QminiApp::QminiApp(Options opts)
     // reset() below so the controller's initial joint_pos is already on the
     // adjusted frame.
     load_dynamic_zero();
-    load_ref_offset();
     if (opts_.zero_on_start) {
         capture_zero();
     }
@@ -276,54 +275,15 @@ void QminiApp::load_dynamic_zero() {
     }
 }
 
-void QminiApp::load_ref_offset() {
-    // ref_offset.yaml is written by ref_calibration_tool. Schema:
-    //   ref_offset: { hip_yaw_l: x, hip_roll_l: x, ... }   (named keys)
-    // Joint order is the standard 10-vector order; we look up each name.
-    static const char* kNames[10] = {
-        "hip_yaw_l", "hip_roll_l", "hip_pitch_l", "knee_l", "ankle_l",
-        "hip_yaw_r", "hip_roll_r", "hip_pitch_r", "knee_r", "ankle_r",
-    };
-    std::ifstream f(opts_.ref_offset_path);
-    if (!f) {
-        std::printf("[ref-offset] no %s — using URDF nominal pose\n",
-                    opts_.ref_offset_path.c_str());
-        return;
-    }
-    try {
-        YAML::Node y = YAML::Load(f);
-        const auto& ro = y["ref_offset"];
-        if (!ro) {
-            std::fprintf(stderr, "[ref-offset] %s missing 'ref_offset' key\n",
-                         opts_.ref_offset_path.c_str());
-            return;
-        }
-        for (int i = 0; i < 10; ++i) {
-            if (ro[kNames[i]]) ref_offset_[i] = ro[kNames[i]].as<float>();
-        }
-        std::printf("[ref-offset] loaded %s:", opts_.ref_offset_path.c_str());
-        for (int i = 0; i < 10; ++i) std::printf(" %+.4f", ref_offset_[i]);
-        std::printf("\n");
-    } catch (const std::exception& e) {
-        std::fprintf(stderr, "[ref-offset] failed to parse %s: %s\n",
-                     opts_.ref_offset_path.c_str(), e.what());
-    }
-}
-
 void QminiApp::control_tick() {
     relative_time_ += control_dt_;
     const float ratio = std::min(relative_time_ / opts_.stand_duration, 1.f);
 
-    // Apply dynamic_zero + ref_offset to the measured motor state before the
+    // Apply dynamic zero offset to the measured motor state before the
     // controller sees it (subtract). The matching add-back happens at the
-    // outgoing cmd below. The two offsets stack additively:
-    //   dynamic_zero — corrects encoder zero (electrical/mechanical mismatch)
-    //   ref_offset   — corrects URDF CoM mismatch (heavier head etc.)
-    // Both are subtracted from observation so the policy sees q centered on
-    // ref_joint_act, and both are added to the cmd so the motor moves to the
-    // physically-correct pose.
+    // outgoing cmd below.
     hal::MotorStateFrame state = motor_->read();
-    for (int i = 0; i < 10; ++i) state.q[i] -= dynamic_zero_[i] + ref_offset_[i];
+    for (int i = 0; i < 10; ++i) state.q[i] -= dynamic_zero_[i];
 
     rl_->update_motor_state(state);
     rl_->update_base_state(imu_->read());
@@ -360,9 +320,7 @@ void QminiApp::control_tick() {
     // motor sees the same absolute targets it always did; only the
     // controller's coordinate frame slid.
     hal::MotorCmdFrame cmd = rl_->to_motor_cmd(current_mode_);
-    for (int i = 0; i < 10; ++i) {
-        cmd.q_target[i] += dynamic_zero_[i] + ref_offset_[i];
-    }
+    for (int i = 0; i < 10; ++i) cmd.q_target[i] += dynamic_zero_[i];
     motor_->send(cmd);
 }
 
