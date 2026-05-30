@@ -467,12 +467,28 @@ cd ~/code/RoboTamerSdk4Qmini/bin
 ./ref_calibration_tool
 ```
 
-Workflow (≤5 minutes):
+Workflow (≤5 minutes). The tool walks five phases, every motion-causing
+phase gated by an explicit prompt (mirrors `pd_calibration_tool`):
 
-1. Power on, robot held by operator at MGTO. Run the tool. It ramps
-   from the measured pose to MGTO over 2 s at full kp/kd.
-2. Place the robot on flat ground. Release gently.
-3. Observe tip direction:
+1. **Optional startq zero calibration** (`[Y/n]`). Motors limp; operator
+   hand-poses to the URDF zero; tool averages and offers to write the
+   result back to `config.yaml`. Skip with `--no-zero-cal`.
+2. **Pre-motion confirmation** (`y`). Until this `y`, motors are limp.
+   The next phase issues PD with the gains from `config.yaml`.
+3. **Ramp to MGTO** (`--ramp-in-s`, default 2 s). Smooth blend from
+   measured pose to MGTO.
+4. **MGTO confirmation** (`y`). Robot is now holding MGTO via PD.
+   Operator verifies the standing pose looks right before any further
+   motion.
+5. **Operator pose-tuning loop**. Arrow keys adjust `(dx_foot, dy_foot)`;
+   `Enter` writes `ref_offset.yaml`.
+
+On real hardware, hold the robot during phase 1 (limp), place it on
+the ground before phase 2, and keep the e-stop in reach throughout.
+
+Operator workflow once in phase 5:
+
+1. Observe tip direction:
    - Falls forward (head down) → press `↓` (move feet back so CoP
      shifts forward of CoM... wait, the OTHER way around — see "sign
      convention" below)
@@ -508,12 +524,26 @@ press `↓`.
 
 ### CLI flags
 
+Safety / workflow:
+```
+-y, --yes               skip ALL confirmation prompts (sim / scripts only)
+--no-zero-cal           skip the startq zero calibration phase
+--zero-cal-countdown <s>  hand-position countdown (default 10)
+--zero-cal-measure <s>    averaging window (default 5)
+--ramp-in-s <s>         ramp from measured pose to MGTO (default 2)
+```
+
+Operator loop:
 ```
 --step-mm <int>     ±step per arrow press (default 2)
 --max-mm <int>      absolute cap on |dx|, |dy| (default 50)
 --slew-ms <int>     slew time per key press (default 200 ms)
 --out <path>        output yaml (default bin/ref_offset.yaml)
 --dynamic-zero <p>  encoder zero file to load (default bin/dynamic_zero.yaml)
+```
+
+Backend:
+```
 --mjcf <path>       mujoco backend: which MJCF to load
                     (recommend sim_assets/q1_sim_hung.mjcf for dry-run)
 --no-viewer         mujoco backend: skip GLFW viewer
