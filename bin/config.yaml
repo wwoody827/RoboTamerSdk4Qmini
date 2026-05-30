@@ -20,14 +20,13 @@ vx_cmd_range: [ -0.3, 0.5 ] #m/s
 yr_cmd_range: [ -1., 1. ]  #rad/s
 kp_yaw_ctrl: 2.
 
-#reference joint action — IK-resolved standing pose at base_z = 0.40 m.
-# Source of truth: qmini_lab/source/qmini_lab/assets/q1/constants.py
-#   QMINI_REF_JOINT_POSES_BY_Z[3] (= z=0.40)
+#reference joint action — standing crouch pose.
+# Source of truth: qmini_lab/source/qmini_lab/configs/base.yaml::action.ref_joint_pos
 # Order: HYL HRL HPL KL AL  HYR HRR HPR KR AR
 sin_joint_idx: 1
 use_sim_gait: false
-ref_joint_act: [ 0.2346, -0.0372, -1.3862, 1.3959, -0.9879,
-                -0.2346,  0.0372,  1.3862, -1.3959,  0.9879 ]
+ref_joint_act: [ 0.4, -0.1, -1.5,  1.0, -1.3,
+                -0.4,  0.1,  1.5, -1.0,  1.3 ]
 
 
 #joint position limits

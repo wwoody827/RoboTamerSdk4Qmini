@@ -14,9 +14,10 @@ using qmini::LegIK;
 
 // MGTO crouch pose used by training / SDK (config.yaml::ref_joint_act).
 // Joint order: HYL HRL HPL KL AL HYR HRR HPR KR AR
+// Source: qmini_lab/source/qmini_lab/configs/base.yaml::action.ref_joint_pos
 constexpr std::array<float, 10> kMGTO = {
-    0.2346f, -0.0372f, -1.3862f, 1.3959f, -0.9879f,
-   -0.2346f,  0.0372f,  1.3862f,-1.3959f,  0.9879f,
+    0.4f, -0.1f, -1.5f,  1.0f, -1.3f,
+   -0.4f,  0.1f,  1.5f, -1.0f,  1.3f,
 };
 
 #define EXPECT_NEAR(a, b, tol) do { \
