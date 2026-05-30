@@ -6,6 +6,10 @@ add_executable(test_math               test_math.cpp)
 target_link_libraries(test_math PRIVATE qmini_user)
 add_test(NAME math COMMAND test_math)
 
+add_executable(test_leg_ik             test_leg_ik.cpp)
+target_link_libraries(test_leg_ik PRIVATE qmini_user)
+add_test(NAME leg_ik COMMAND test_leg_ik)
+
 add_executable(test_sim_loop           test_sim_loop.cpp)
 target_link_libraries(test_sim_loop PRIVATE qmini_user)
 # Run sim loop from a tempdir we provision with the right config.yaml.

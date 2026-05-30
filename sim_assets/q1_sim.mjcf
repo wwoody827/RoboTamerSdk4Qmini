@@ -87,4 +87,16 @@
     <general name="act_knee_pitch_r" joint="knee_pitch_r" forcerange="-30 30"/>
     <general name="act_ankle_pitch_r" joint="ankle_pitch_r" forcerange="-30 30"/>
   </actuator>
+  <!--
+  Initial pose: robot standing at MGTO crouch with feet ~1 mm above floor.
+  qpos layout: 7 freejoint dofs (xyz + quat wxyz) then 10 joint angles in
+  the URDF order. Joint values match config.yaml::ref_joint_act. world.cpp
+  loads this via mj_resetDataKeyframe at backend init.
+  -->
+  <keyframe>
+    <key name="home"
+         qpos="0 0 0.405  1 0 0 0
+                0.2346 -0.0372 -1.3862  1.3959 -0.9879
+               -0.2346  0.0372  1.3862 -1.3959  0.9879"/>
+  </keyframe>
 </mujoco>

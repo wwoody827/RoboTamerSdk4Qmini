@@ -222,6 +222,18 @@ Requires `WITH_ONNX=ON` at configure time. The default
 or reconfigure with `-DWITH_ONNX=ON`. `bin/policy.onnx` is loaded by
 default if no `--policy` is given.
 
+### Reference-pose offset (`bin/ref_offset.yaml`)
+
+If the hardware CoM doesn't match the URDF (e.g. heavier head, battery
+moved), the robot tips at MGTO. `bin/ref_offset.yaml` — written by
+`ref_calibration_tool` (see §5) — is loaded at startup and adds a
+joint-angle delta that translates the feet without tilting the body, so
+the *real* robot's foot polygon ends up under its *real* CoM. The
+observation seen by the policy is unchanged (the offset is subtracted
+back out before obs), so the trained policy still sees its training
+MGTO. Stacks additively on `dynamic_zero.yaml`. Delete the file to
+revert.
+
 ---
 
 ## 5. `pd_calibration_tool`
@@ -414,7 +426,160 @@ operator reviews `calibration.yaml` and hand-updates
 
 ---
 
-## 6. Tick rate notes
+## 6. `ref_calibration_tool`
+
+Finds the foot-position offset that puts the robot's CoM over its foot
+polygon, so it stands stably at MGTO. Writes the result to
+`bin/ref_offset.yaml`, which `run_interface` auto-loads at startup
+(stacks additively on `dynamic_zero.yaml`).
+
+### Why you need this
+
+The trained policy expects the robot to be balanced at MGTO. The URDF
+CoM is wherever the mass distribution in `q1.urdf` says it is. If the
+hardware doesn't match the URDF (head heavier, battery moved, cabling
+added), MGTO won't balance, and the robot tips in stand mode before
+the policy can take over.
+
+This tool lets the operator translate both feet in the body frame to
+find a stable pose, while keeping the body level and the feet flat —
+all via an inverse kinematics solver. The observation seen by the
+policy stays centered on the original MGTO (the offset is subtracted
+back out before obs), so the trained policy still works.
+
+### Dry-run in sim (recommended first)
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/tests/fixtures
+../../bin/ref_calibration_tool --mjcf sim_assets/q1_sim_hung.mjcf
+```
+
+The hung MJCF welds the chassis to the world so the robot can't fall
+while you practice the controls. The on-floor variant
+(`--mjcf sim_assets/q1_sim.mjcf`) reproduces the real-robot tip
+behaviour — useful if you want to practice catching the tip in sim,
+but the robot WILL fall if MGTO is statically unstable.
+
+### Real-robot workflow
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/bin
+./ref_calibration_tool
+```
+
+Workflow (≤5 minutes):
+
+1. Power on, robot held by operator at MGTO. Run the tool. It ramps
+   from the measured pose to MGTO over 2 s at full kp/kd.
+2. Place the robot on flat ground. Release gently.
+3. Observe tip direction:
+   - Falls forward (head down) → press `↓` (move feet back so CoP
+     shifts forward of CoM... wait, the OTHER way around — see "sign
+     convention" below)
+   - Falls backward (head up) → press `↑`
+   - Falls sideways → use `←` / `→` to widen/narrow stance
+4. Each arrow press shifts the feet by 2 mm (default) and the joints
+   slew over 200 ms. Keep adjusting until the IMU rpy mean settles
+   near zero.
+5. Press `Enter` to write `bin/ref_offset.yaml`.
+
+### Keys (raw terminal — no Enter needed per key)
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move BOTH feet forward / backward by `--step-mm` |
+| `→` / `←` | Widen / narrow stance by `--step-mm` |
+| `r` | Reset to MGTO (`dx=dy=0`) |
+| `Enter` | Accept current pose, write yaml |
+| `q` / `Esc` | Abort without writing |
+| `hjkl` | vi-style fallback (`h`=`←`, `j`=`↓`, `k`=`↑`, `l`=`→`) |
+
+Each keypress echoes its own status line; the live `[live]` row at
+the bottom keeps refreshing with current `(dx, dy)` and IMU rpy.
+
+### Sign convention
+
+`dx_foot > 0` moves both feet **forward** in body x. This shifts the
+foot polygon forward, which is equivalent to shifting the body CoM
+**backward** relative to the feet. So if the robot tips **forward**,
+the foot polygon is BEHIND the CoM — pressing `↑` (`dx > 0`) moves
+feet forward to catch up to the CoM. If the robot tips **backward**,
+press `↓`.
+
+### CLI flags
+
+```
+--step-mm <int>     ±step per arrow press (default 2)
+--max-mm <int>      absolute cap on |dx|, |dy| (default 50)
+--slew-ms <int>     slew time per key press (default 200 ms)
+--out <path>        output yaml (default bin/ref_offset.yaml)
+--dynamic-zero <p>  encoder zero file to load (default bin/dynamic_zero.yaml)
+--mjcf <path>       mujoco backend: which MJCF to load
+                    (recommend sim_assets/q1_sim_hung.mjcf for dry-run)
+--no-viewer         mujoco backend: skip GLFW viewer
+--iface <name>      hardware backend: net iface for DDS
+--tick-hz <hz>      control rate (default = 1/cfg.control_dt)
+```
+
+### Stacks with `dynamic_zero.yaml` and `config.yaml`
+
+The tool reads (in order):
+
+1. `config.yaml::startq` — factory zero, applied inside the HAL
+2. `dynamic_zero.yaml::dynamic_zero` — runtime re-zero, applied
+   above the HAL (subtracted from observed q, added to commanded q)
+3. `config.yaml::ref_joint_act` — MGTO joint values used as IK seed
+4. `config.yaml::kp` / `kd` — PD gains used for ramp and hold
+
+The output `ref_offset.yaml` is **independent** — it's loaded by
+`qmini_app` at deploy time and stacks additively on `dynamic_zero`.
+At deploy: physical pose = `ref_joint_act + ref_offset + dynamic_zero
++ startq` (and `startq` is in the HAL's gear-ratio conversion).
+
+### Output
+
+`bin/ref_offset.yaml`:
+
+```yaml
+ref_offset:
+  hip_yaw_l: 0.0
+  hip_roll_l: 0.0            # always 0 (foot-flat constraint)
+  hip_pitch_l: -0.103
+  knee_l:     -0.006
+  ankle_l:     0.097
+  hip_yaw_r:  0.0
+  hip_roll_r: 0.0
+  hip_pitch_r: 0.103
+  knee_r:      0.006
+  ankle_r:    -0.097
+meta:
+  date: 2026-05-30T14:22:01
+  method: foot_translation_ik
+  dx_foot_m: 0.020
+  dy_foot_m: 0.000
+  imu_rpy_mean_at_balance: [0.001, -0.008, 0.0]
+  imu_rpy_std: 0.011
+```
+
+The `meta` section is informational; only `ref_offset` is loaded at
+deploy time. Delete the file to revert to the URDF-nominal MGTO.
+
+### Constraints enforced by the IK
+
+| Invariant | How |
+|---|---|
+| Body roll = 0 | Operator only adjusts feet, body stays put |
+| Body pitch = 0 | Same |
+| Foot pitch = 0 (feet flat) | Ankle absorbs hip_pitch + knee deltas |
+| Foot roll = 0 | hip_roll forced to MGTO; ankle has no roll DoF |
+| L/R symmetric | Same dx applied to both legs |
+
+The IK math + verification against the MJCF kinematic chain is in
+`COM_CALIBRATION_SPEC.md` and `tools/verify_leg_ik_mujoco.py`.
+
+---
+
+## 7. Tick rate notes
 
 `pd_calibration_tool` defaults to `1/control_dt` from `config.yaml`
 (currently `0.015 s` → 66.67 Hz) — the same rate the deployed policy

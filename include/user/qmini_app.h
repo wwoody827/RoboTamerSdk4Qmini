@@ -32,6 +32,7 @@ public:
         int   sin_joint_idx = -2;                 // -2 = use config.yaml; 0..9 = single joint
         bool  zero_on_start = false;              // capture current pose as zero at boot
         std::string dynamic_zero_path = "dynamic_zero.yaml";  // persistence file
+        std::string ref_offset_path   = "ref_offset.yaml";    // foot-translation IK offset
     };
 
     explicit QminiApp(Options opts);
@@ -91,6 +92,15 @@ private:
     void capture_zero();          // current state.q → dynamic_zero_, persist
     void load_dynamic_zero();     // read from opts_.dynamic_zero_path
     void save_dynamic_zero();     // write to opts_.dynamic_zero_path
+
+    // ref_offset: 10-vector of joint deltas written by ref_calibration_tool.
+    // Reflects the foot-translation needed to put CoM over the support
+    // polygon when the URDF CoM disagrees with hardware (e.g. heavier head).
+    // Applied identically to dynamic_zero (subtract from observed, add to
+    // cmd) — see COM_CALIBRATION_SPEC.md for the rationale that this keeps
+    // the policy's observation centered on the original training MGTO.
+    std::array<float, 10> ref_offset_{};
+    void load_ref_offset();       // read from opts_.ref_offset_path
 };
 
 }  // namespace qmini

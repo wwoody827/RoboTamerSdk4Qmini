@@ -26,6 +26,7 @@ set(USER_SOURCES
     source/user/data_report.cpp
     source/user/qmini_app.cpp
     source/user/policy_identity.cpp
+    source/user/leg_ik.cpp
 )
 
 if (WITH_ONNX)
@@ -217,6 +218,20 @@ add_executable(run_interface source/run_interface.cpp)
 target_link_libraries(run_interface PRIVATE qmini_user)
 if (BACKEND STREQUAL "mujoco")
     set_target_properties(run_interface PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
+# Reference-pose calibration tool — drives the HAL motor backend through
+# stand mode at MGTO, lets the operator translate the feet via IK, writes
+# bin/ref_offset.yaml. See COM_CALIBRATION_SPEC.md. Builds for every backend.
+add_executable(ref_calibration_tool
+    source/user/ref_calibration_main.cpp
+)
+target_link_libraries(ref_calibration_tool PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    target_include_directories(ref_calibration_tool PRIVATE ${MUJOCO_PRIVATE_INC})
+    set_target_properties(ref_calibration_tool PROPERTIES
         BUILD_RPATH   "${MUJOCO_DIR}"
         INSTALL_RPATH "${MUJOCO_DIR}")
 endif()
