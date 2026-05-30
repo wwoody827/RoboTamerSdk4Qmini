@@ -77,8 +77,14 @@ def parse_yaml(path: Path):
     return startq, doc["joint_ranges"]
 
 
-def compute_new_startq(old_startq, joint_ranges):
-    """Returns (new_startq, per_joint_diagnostic_table)."""
+def compute_new_startq(old_startq, joint_ranges, canonical=None):
+    """Returns (new_startq, per_joint_diagnostic_table).
+
+    If `canonical` is given (a dict from load_canonical), the target column
+    becomes the canonical min/max values instead of the URDF range. This
+    is the post-bootstrap mode — we trust the measured stop positions in
+    URDF coords because the bootstrap pass calibrated startq accurately.
+    """
     new_startq = list(old_startq)
     table = []
     for i, name in enumerate(JOINT_ORDER):
@@ -87,12 +93,20 @@ def compute_new_startq(old_startq, joint_ranges):
             sys.exit(f"error: joint {name} not in yaml")
         meas = joint_ranges[name]
         end = tgt[0]
-        if end == "max":
-            q_target, urdf_value = meas["measured_max"], tgt[1]
-        elif end == "min":
-            q_target, urdf_value = meas["measured_min"], tgt[1]
+        # Pick the target URDF value (canonical overrides URDF if present).
+        if canonical is not None and name in canonical:
+            urdf_lo, urdf_hi = canonical[name]
         elif end == "mid":
             urdf_lo, urdf_hi = tgt[1], tgt[2]
+        else:
+            urdf_lo = urdf_hi = tgt[1]   # single-end joints
+        if end == "max":
+            q_target = meas["measured_max"]
+            urdf_value = urdf_hi
+        elif end == "min":
+            q_target = meas["measured_min"]
+            urdf_value = urdf_lo
+        elif end == "mid":
             q_target = 0.5 * (meas["measured_min"] + meas["measured_max"])
             urdf_value = 0.5 * (urdf_lo + urdf_hi)
         else:
@@ -136,6 +150,41 @@ def update_config_yaml(path: Path, new_startq):
     print(f"updated {path} startq line")
 
 
+def load_canonical(path: Path):
+    """Load canonical_joint_limits.yaml — per-joint TRUE URDF angles at
+    mechanical stops, captured after a one-time bootstrap calibration.
+    Returns a dict mapping joint name to (min, max) in URDF coords."""
+    if not path.exists():
+        return None
+    doc = yaml.safe_load(path.read_text())
+    if "canonical_limits" not in doc:
+        return None
+    out = {}
+    for name, lim in doc["canonical_limits"].items():
+        out[name] = (float(lim["min"]), float(lim["max"]))
+    return out
+
+
+def write_canonical(path: Path, joint_ranges):
+    """Save the current measured min/max as the canonical reference. Used
+    after bootstrap to lock in the calibrated mechanical-stop URDF angles."""
+    import datetime as _dt
+    lines = [
+        "# Calibrated per-joint mechanical stop positions in URDF coordinates.",
+        "# Captured after bootstrap calibration (URDF zero + IMU refinement).",
+        "# Used by apply_limit_calibration.py as the target column instead",
+        "# of the conservative URDF range values.",
+        f"# bootstrap_date: {_dt.datetime.now().isoformat(timespec='seconds')}",
+        "canonical_limits:",
+    ]
+    for name in JOINT_ORDER:
+        meas = joint_ranges[name]
+        lines.append(f"  {name:<12}: {{ min: {meas['measured_min']:+.4f}, "
+                     f"max: {meas['measured_max']:+.4f} }}")
+    path.write_text("\n".join(lines) + "\n")
+    print(f"wrote canonical limits → {path}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("yaml", type=Path,
@@ -145,6 +194,15 @@ def main():
     ap.add_argument("--config", type=Path,
                     default=Path("bin/config.yaml"),
                     help="path to config.yaml (only used with --apply)")
+    ap.add_argument("--canonical", type=Path,
+                    default=Path("bin/canonical_joint_limits.yaml"),
+                    help="canonical mechanical-stop reference yaml. If it "
+                         "exists, its values override the hard-coded URDF "
+                         "TARGETS. Pass /dev/null to ignore.")
+    ap.add_argument("--record-canonical", action="store_true",
+                    help="after bootstrap: save the current measurement as "
+                         "the canonical reference for future runs. Skips the "
+                         "startq computation.")
     args = ap.parse_args()
 
     if not args.yaml.exists():
@@ -153,7 +211,25 @@ def main():
         sys.exit(f"error: {args.config} not found")
 
     old_startq, joint_ranges = parse_yaml(args.yaml)
-    new_startq, table = compute_new_startq(old_startq, joint_ranges)
+
+    # --record-canonical: bootstrap mode. Trust the input measurement as
+    # ground truth and save it for future calibrations to use.
+    if args.record_canonical:
+        write_canonical(args.canonical, joint_ranges)
+        print("\nFrom now on, apply_limit_calibration.py reads this file and\n"
+              "uses these per-joint URDF angles as the calibration targets\n"
+              "instead of the conservative URDF range values.")
+        return
+
+    canonical = load_canonical(args.canonical)
+    if canonical is not None:
+        print(f"loaded canonical limits from {args.canonical}")
+    else:
+        print(f"no canonical limits file at {args.canonical} — falling back to "
+              f"hard-coded URDF range values. (Run with --record-canonical after "
+              f"bootstrap to lock in real stops.)")
+
+    new_startq, table = compute_new_startq(old_startq, joint_ranges, canonical)
 
     print_table(table)
 
