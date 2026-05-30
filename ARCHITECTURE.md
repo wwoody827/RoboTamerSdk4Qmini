@@ -1,9 +1,10 @@
 # Architecture
 
-This is the post-HAL design (May 2026 refactor). For the *original* design
-and migration history, see `HAL_PLAN.md` and `REFACTOR_PLAN.md` — they're
-kept as records but everything in them has either landed or been
-explicitly deferred.
+This is the post-HAL design (landed May 2026). It supersedes a
+pre-HAL layout where Python was embedded for joystick + IMU and motor
+ownership was tangled through `G1`/`custom.hpp`. The git log of
+the `hal-refactor` branch carries the migration commits; this doc
+describes the design as it stands now.
 
 ---
 
@@ -123,9 +124,10 @@ passes a snapshot to the builder each tick.
 
 This layout **must** match training-side `_get_observations` exactly.
 That's the single biggest source of bugs in deploy; the April 2026
-incident was a 43→44 mismatch. The recommended next step is a
-`policy_meta.yaml` startup check (see deferred section in
-`HAL_PLAN.md`).
+incident was a 43→44 mismatch. A `policy_meta.yaml` startup check
+that asserts obs-dim, joint order, and action ranges agree between
+the SDK config and the trained policy would catch that class of bug
+at boot rather than runtime — see "Deliberately not built" below.
 
 ---
 
@@ -200,9 +202,9 @@ robot.
 ## Things we deliberately did **not** build
 
 - A file-replay backend (read recorded `StateFrame` from disk and drive
-  the controller deterministically). The original HAL_PLAN proposed it
-  as the third backend. Useful for regression-testing against captured
-  real-robot logs, not blocking. Slot for it: `source/user/hal/replay/`.
+  the controller deterministically). Useful for regression-testing
+  against captured real-robot logs, not blocking. Natural slot:
+  `source/user/hal/replay/`.
 - A `policy_meta.yaml` startup check that asserts obs-dim, joint order,
   action ranges agree between SDK config and the trained policy. Would
   catch class-of-bug like the April 2026 obs-dim mismatch at startup
