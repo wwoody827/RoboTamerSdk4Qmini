@@ -35,13 +35,23 @@ import yaml
 # smaller |Δ vs URDF| (most reliable mechanical stop).
 #   ("end", urdf_value): "end" is "min" or "max" of the yaml entry.
 TARGETS = {
-    "hip_yaw_l":   ("max", +0.70),
-    "hip_roll_l":  ("max", +0.60),
+    # ("min" | "max" | "mid", target_q_value)
+    # For joints whose URDF range spans both signs (hip_yaw, hip_roll), the
+    # "0" position is mid-range — no mechanical reference. We use "mid":
+    # average of measured min+max stops vs URDF midpoint. Symmetric errors
+    # at both stops cancel, giving better precision than either single end.
+    #
+    # For pitch-chain joints (hip_pitch, knee, ankle) whose URDF range is
+    # entirely one side of 0, q=0 IS the mechanical stop. Single-end is
+    # already <1° accurate; midpoint would be worse (uses the far end which
+    # may have larger Δ).
+    "hip_yaw_l":   ("mid", -0.10, +0.70),
+    "hip_roll_l":  ("mid", -0.30, +0.60),
     "hip_pitch_l": ("max",  0.00),
     "knee_l":      ("min",  0.00),
     "ankle_l":     ("max",  0.00),
-    "hip_yaw_r":   ("min", -0.70),
-    "hip_roll_r":  ("min", -0.60),
+    "hip_yaw_r":   ("mid", -0.70, +0.10),
+    "hip_roll_r":  ("mid", -0.60, +0.30),
     "hip_pitch_r": ("min",  0.00),
     "knee_r":      ("max",  0.00),
     "ankle_r":     ("min",  0.00),
@@ -72,16 +82,26 @@ def compute_new_startq(old_startq, joint_ranges):
     new_startq = list(old_startq)
     table = []
     for i, name in enumerate(JOINT_ORDER):
-        end, urdf_value = TARGETS[name]
+        tgt = TARGETS[name]
         if name not in joint_ranges:
             sys.exit(f"error: joint {name} not in yaml")
         meas = joint_ranges[name]
-        q_extreme = meas["measured_max"] if end == "max" else meas["measured_min"]
-        delta = q_extreme - urdf_value
+        end = tgt[0]
+        if end == "max":
+            q_target, urdf_value = meas["measured_max"], tgt[1]
+        elif end == "min":
+            q_target, urdf_value = meas["measured_min"], tgt[1]
+        elif end == "mid":
+            urdf_lo, urdf_hi = tgt[1], tgt[2]
+            q_target = 0.5 * (meas["measured_min"] + meas["measured_max"])
+            urdf_value = 0.5 * (urdf_lo + urdf_hi)
+        else:
+            sys.exit(f"unknown TARGETS end '{end}' for {name}")
+        delta = q_target - urdf_value
         new_startq[i] = old_startq[i] + delta
         table.append({
             "name": name, "end": end, "urdf_limit": urdf_value,
-            "q_at_extreme": q_extreme,
+            "q_at_extreme": q_target,
             "old_startq": old_startq[i],
             "new_startq": new_startq[i],
             "delta": delta,
