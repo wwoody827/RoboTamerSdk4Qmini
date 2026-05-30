@@ -9,8 +9,9 @@
 //   ./joint_range_tool [--mjcf <path>] [--no-viewer] [--iface <name>]
 //
 // Keyboard (raw terminal):
-//   r       reset all min/max to the current q
-//   q,Esc   quit (prints final summary)
+//   r           reset all min/max to the current q
+//   Enter       SAVE: record min/max, print summary, optionally write yaml
+//   q, Esc      ABORT: exit without saving
 
 #include <algorithm>
 #include <array>
@@ -55,7 +56,8 @@ const float kUrdfHigh[kNumJoints] = {+0.7f, +0.6f,  0.0f, +2.1f,  0.0f,
                                      +0.1f, +0.3f, +2.1f,  0.0f, +2.5f};
 
 std::atomic<bool> g_quit{false};
-void handle_sigint(int) { g_quit = true; }
+std::atomic<bool> g_aborted{false};
+void handle_sigint(int) { g_quit = true; g_aborted = true; }
 
 void print_usage(const char* prog) {
     std::printf(
@@ -84,7 +86,7 @@ void print_usage(const char* prog) {
 // ---------------------------------------------------------------------------
 class KeyboardCmd {
 public:
-    enum Cmd { None, Reset, Quit };
+    enum Cmd { None, Reset, Save, Abort };
 
     bool start() {
         const bool is_tty = isatty(STDIN_FILENO);
@@ -125,8 +127,9 @@ private:
                 std::lock_guard<std::mutex> g(mu_);
                 for (ssize_t i = 0; i < n; ++i) {
                     char c = buf[i];
-                    if (c == 'r' || c == 'R') queue_.push_back(Reset);
-                    else if (c == 'q' || c == 'Q' || c == 0x1b) queue_.push_back(Quit);
+                    if (c == 'r' || c == 'R')                queue_.push_back(Reset);
+                    else if (c == '\n' || c == '\r')         queue_.push_back(Save);
+                    else if (c == 'q' || c == 'Q' || c == 0x1b) queue_.push_back(Abort);
                 }
             }
         }
@@ -245,9 +248,14 @@ int main(int argc, char** argv) {
     std::printf("\n"
         "================================================================\n"
         "  JOINT RANGE MEASUREMENT  (motors LIMP — move by hand)\n"
-        "  Move EACH joint slowly to BOTH of its mechanical limits while\n"
-        "  watching the table. Compare measured_min/max to the URDF range.\n"
-        "  Press 'r' to reset, 'q' or Esc to quit.\n"
+        "\n"
+        "  All motors are limp. Move EACH joint slowly to BOTH of its\n"
+        "  mechanical limits — the tool tracks running min/max while you do.\n"
+        "\n"
+        "  When you're done sweeping:\n"
+        "    Enter   SAVE: locks in min/max, prints summary, writes yaml\n"
+        "    r       reset all min/max to current q (start over)\n"
+        "    q/Esc   ABORT without saving\n"
         "================================================================\n");
     std::fflush(stdout);
 
@@ -292,8 +300,13 @@ int main(int argc, char** argv) {
                     q_min[i] = state.q[i];
                     q_max[i] = state.q[i];
                 }
-            } else if (c == KeyboardCmd::Quit) {
+            } else if (c == KeyboardCmd::Save) {
+                g_quit = true;       // exit loop, then print summary
+                break;
+            } else if (c == KeyboardCmd::Abort) {
+                g_aborted = true;
                 g_quit = true;
+                break;
             }
         }
         if (g_quit.load()) break;
@@ -326,6 +339,16 @@ int main(int argc, char** argv) {
 
     // Move cursor below the table so the summary prints cleanly.
     std::printf("\033[%dB\n", kTableLines);
+
+    if (g_aborted.load()) {
+        std::printf("\n[range] aborted — nothing saved.\n");
+        keys.stop();
+#ifdef QMINI_HAVE_VIEWER
+        if (viewer_on) qmini::hal::mj::Viewer::instance().stop();
+#endif
+        motor->stop();
+        return 0;
+    }
 
     std::printf("\n=== final ranges (controller frame: q = raw − startq) ===\n");
     std::printf("%-13s | %10s | %10s | %8s | %20s | match?\n",
