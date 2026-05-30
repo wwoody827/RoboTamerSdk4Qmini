@@ -12,6 +12,7 @@ bin/pd_calibration_tool
 bin/motor_status
 bin/ref_calibration_tool
 bin/test_leg_ik
+bin/joint_range_tool
 
 # PD calibration data (per-run, robot-specific, megabytes each).
 data/pd_calibration/*/

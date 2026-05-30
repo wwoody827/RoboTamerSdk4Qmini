@@ -222,6 +222,22 @@ if (BACKEND STREQUAL "mujoco")
         INSTALL_RPATH "${MUJOCO_DIR}")
 endif()
 
+# Joint-range measurement tool — motors limp; operator moves each joint
+# by hand to its mechanical limits; tool tracks live min/max q and prints
+# a comparison against the URDF range. Used to verify whether URDF joint
+# limits match the physical hard stops before trusting them as calibration
+# references.
+add_executable(joint_range_tool
+    source/user/joint_range_tool.cpp
+)
+target_link_libraries(joint_range_tool PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    target_include_directories(joint_range_tool PRIVATE ${MUJOCO_PRIVATE_INC})
+    set_target_properties(joint_range_tool PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
 # Reference-pose calibration tool — drives the HAL motor backend through
 # stand mode at MGTO, lets the operator translate the feet via IK, writes
 # bin/ref_offset.yaml. See COM_CALIBRATION_SPEC.md. Builds for every backend.
