@@ -115,7 +115,11 @@ void print_usage(const char* prog) {
 // hal/sim/joystick_keyboard.cpp.
 // ---------------------------------------------------------------------------
 
-enum class Cmd { None, IncDx, DecDx, IncDy, DecDy, Reset, Reslew, Accept, Abort };
+enum class Cmd { None,
+                 IncDx, DecDx, IncDy, DecDy,
+                 IncPitch, DecPitch, IncRoll, DecRoll,  // phase 4.5: startq nudge
+                 NextPhase,                              // phase 4.5 → 5 transition
+                 Reset, Reslew, Accept, Abort };
 
 class KeyboardCmd {
 public:
@@ -188,13 +192,14 @@ private:
                 case '\n': case '\r': queue_.push_back(Cmd::Accept); break;
                 case 'q': case 'Q':   queue_.push_back(Cmd::Abort);  break;
                 case 'r': case 'R':   queue_.push_back(Cmd::Reset);  break;
-                case 's': case 'S':   queue_.push_back(Cmd::Reslew); break;
-                // Allow vi-style hjkl as a backup if arrow ESC sequences get
-                // mangled by some terminal multiplexer.
-                case 'k': queue_.push_back(Cmd::IncDx); break;
-                case 'j': queue_.push_back(Cmd::DecDx); break;
-                case 'l': queue_.push_back(Cmd::IncDy); break;
-                case 'h': queue_.push_back(Cmd::DecDy); break;
+                case 'n': case 'N':   queue_.push_back(Cmd::NextPhase); break;
+                // Phase 4.5 startq adjustments. WASD around the body axes:
+                //   w/s  tilt body pitch  (via ANKLE startq, L+R symmetric)
+                //   a/d  tilt body roll   (via HIP_ROLL startq, asymmetric)
+                case 'w': case 'W':   queue_.push_back(Cmd::IncPitch); break;
+                case 's': case 'S':   queue_.push_back(Cmd::DecPitch); break;
+                case 'a': case 'A':   queue_.push_back(Cmd::IncRoll);  break;
+                case 'd': case 'D':   queue_.push_back(Cmd::DecRoll);  break;
                 default: break;
             }
         }
@@ -461,6 +466,7 @@ int main(int argc, char** argv) {
     const double step_m = step_mm * 1e-3;
     const double max_m  = max_mm  * 1e-3;
     const double slew_s = std::max(0.05, slew_ms * 1e-3);
+    constexpr double kStartqStep = 0.005;  // rad per w/s/a/d press
 
     // Load config.yaml from CWD (same convention as run_interface).
     ConfigParams cfg;
@@ -707,10 +713,142 @@ int main(int argc, char** argv) {
     }
 
     // ------------------------------------------------------------------
-    // Phase 5: switch stdin to RAW for arrow keys and enter operator loop.
-    // From here on, std::getline won't work — keyboard handler owns stdin.
+    // Phase 4.5: IMU-grounded startq refinement.
+    //
+    // The robot is now physically holding MGTO via PD. If startq is right,
+    // body should be level (IMU pitch=roll=0). If it isn't, the operator
+    // nudges startq for ankle (pitch chain) and hip_roll (roll axis) until
+    // IMU settles near zero.
+    //
+    // The math: at commanded MGTO with feet flat on ground, "body pitch in
+    // world" = −(cumulative foot pitch error in body frame). To shrink body
+    // pitch by ε, change physical ankle by ε relative to commanded (the
+    // ankle is last in the chain → most direct effect). That means shifting
+    // startq[ankle] — for L (sign_a=+1) decrease, for R (sign_a=−1)
+    // increase, in symmetric magnitude.
+    //
+    // Roll is corrected via hip_roll (the only roll DoF). L and R
+    // hip_roll URDF axes are both +X → adjusting them with opposite
+    // signs creates a body roll torque.
+    //
+    // On Enter, the new startq is saved to config.yaml (with .bak) and
+    // we drop into Phase 5 (dx/dy CoM correction).
     // ------------------------------------------------------------------
     keys.start();
+    {
+        std::printf("\n"
+            "================================================================\n"
+            "  Phase 4.5: IMU-grounded startq refinement\n"
+            "\n"
+            "  Robot is holding MGTO with PD. Place it on a flat floor and\n"
+            "  observe the IMU readout. Nudge startq until rpy is near zero.\n"
+            "\n"
+            "  Keys:\n"
+            "    w / s     ANKLE pitch  ±%.3f rad (L+/R-,  L-/R+)\n"
+            "              w → body pitches forward (head down)\n"
+            "              s → body pitches backward (head up)\n"
+            "    a / d     HIP_ROLL ±%.3f rad (L+/R-, opposite signs)\n"
+            "    r         reset all startq adjustments\n"
+            "    n         next phase: save startq + start dx/dy loop\n"
+            "    q/Esc     abort\n"
+            "================================================================\n",
+            kStartqStep, kStartqStep);
+        std::fflush(stdout);
+
+        std::array<float, kNumJoints> original_startq{};
+        for (int i = 0; i < kNumJoints; ++i) original_startq[i] = hw.startq[i];
+        std::array<float, kNumJoints> dsq{};      // cumulative adjustment
+
+        auto apply_startq = [&]() {
+            std::array<float, kNumJoints> new_sq;
+            for (int i = 0; i < kNumJoints; ++i) new_sq[i] = original_startq[i] + dsq[i];
+            motor->set_zero_offset(new_sq);
+        };
+
+        bool advanced = false;
+        bool aborted_p45  = false;
+        int print_throttle = 0;
+        const int print_period_ticks = std::max(1, static_cast<int>(0.2 / dt));
+
+        while (!g_abort.load()) {
+            // Hold MGTO at current startq.
+            float qcmd[kNumJoints];
+            for (int i = 0; i < kNumJoints; ++i) qcmd[i] = ref_q[i];
+            send_cmd(qcmd, 1.f, 1.f);
+
+            // Process keys.
+            Cmd c;
+            bool dirty = false;
+            while ((c = keys.pop()) != Cmd::None) {
+                const float step = static_cast<float>(kStartqStep);
+                switch (c) {
+                    case Cmd::IncPitch:
+                        // body pitch decreases (head down). For L (sign_a=+1):
+                        // decrease physical ankle → decrease startq.
+                        // For R (sign_a=-1): increase physical ankle → increase startq.
+                        dsq[4] -= step; dsq[9] += step;
+                        dirty = true; break;
+                    case Cmd::DecPitch:
+                        dsq[4] += step; dsq[9] -= step;
+                        dirty = true; break;
+                    case Cmd::IncRoll:
+                        // body roll. Both hip_rolls axis = +X. Opposite signs
+                        // produce body roll. Sign chosen so 'd' rolls right.
+                        dsq[1] += step; dsq[6] -= step;
+                        dirty = true; break;
+                    case Cmd::DecRoll:
+                        dsq[1] -= step; dsq[6] += step;
+                        dirty = true; break;
+                    case Cmd::Reset:
+                        dsq = {};
+                        dirty = true; break;
+                    case Cmd::NextPhase:
+                    case Cmd::Accept:
+                        advanced = true; break;
+                    case Cmd::Abort:
+                        aborted_p45 = true; break;
+                    default: break;
+                }
+                if (advanced || aborted_p45) break;
+            }
+            if (advanced || aborted_p45) break;
+            if (dirty) apply_startq();
+
+            // Throttled status.
+            if (++print_throttle >= print_period_ticks) {
+                print_throttle = 0;
+                auto base = imu ? imu->read() : qmini::hal::BaseStateFrame{};
+                std::printf("\r\x1b[K[startq] IMU rpy=(%+5.3f, %+5.3f, %+5.3f) rad  "
+                            "Δsq ank=(%+5.3f,%+5.3f) hp_roll=(%+5.3f,%+5.3f)  "
+                            "wasd/n/r/q",
+                            base.rpy[0], base.rpy[1], base.rpy[2],
+                            dsq[4], dsq[9], dsq[1], dsq[6]);
+                std::fflush(stdout);
+            }
+            sleep_until_next(t_tick);
+        }
+        std::printf("\n");
+
+        if (aborted_p45) {
+            std::printf("[ref-cal] Phase 4.5 aborted — startq reverted.\n");
+            motor->set_zero_offset(original_startq);
+            goto teardown;
+        }
+        if (advanced) {
+            // Persist the new startq.
+            std::array<float, kNumJoints> new_sq;
+            for (int i = 0; i < kNumJoints; ++i) new_sq[i] = original_startq[i] + dsq[i];
+            apply_startq();
+            if (save_startq_to_config("config.yaml", new_sq)) {
+                std::printf("[ref-cal] startq saved to config.yaml (backup: config.yaml.bak)\n");
+            } else {
+                std::fprintf(stderr, "[ref-cal] FAILED to save startq — kept in session only.\n");
+            }
+            // Update cfg.startq for downstream phases / display.
+            for (int i = 0; i < kNumJoints; ++i) cfg.startq[i] = new_sq[i];
+        }
+    }
+    // keys stays running for Phase 5 below.
 
     // Phase B: operator loop. Slew live_dq -> target_dq with first-order alpha.
     {
