@@ -320,6 +320,17 @@ tools afterward.) See `scripts/hardware/README.md`.
 You ran a C++ tool from the wrong directory. Run `joint_range_tool` /
 `joint_jog_tool` from `bin/`; run the Python scripts from the repo root.
 
+### Body not level at MGTO / can't tell which pitch joint is wrong
+
+Body-IMU leveling only sees the **sum** of the pitch chain
+(`θ_body = ankle + knee + hip_pitch`), so it can't tell you *which* of
+hip_pitch / knee / ankle is mis-calibrated — and multi-pose jogging
+can't either (same degenerate equation at every height). Use a
+**per-joint geometric reference** instead (foot ⟂ shank, knee ⟂ shank,
+thigh horizontal) to decompose and find the bad joint. Full method +
+verified target angles + the tool spec:
+[`GEOMETRIC_JOINT_CALIBRATION_SPEC.md`](GEOMETRIC_JOINT_CALIBRATION_SPEC.md).
+
 ---
 
 *Related: `7. ref_calibration_tool` in `USAGE.md` handles CoM correction

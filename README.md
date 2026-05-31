@@ -23,6 +23,7 @@ honest.
 | `BUILDING.md` | The three CMake presets and what each needs |
 | `USAGE.md` | How to run `run_interface` and `pd_calibration_tool` day-to-day |
 | `1_calibrate_joints.md` | Joint (`startq`) calibration runbook: bootstrap → jog-refine → canonical lock |
+| `GEOMETRIC_JOINT_CALIBRATION_SPEC.md` | Spec: per-joint geometric `startq` calibration (decompose a body-pitch error; tool + render targets) |
 | `PD_CALIBRATION_SPEC.md` | Spec for the per-joint PD identification protocol |
 | `PYTHON_REMOVAL.md` | Why the runtime is pure C++ (and the protocol references for the hardware backends) |
 | `MOTOR_PORT_MAP.md` | FTDI port → motor ID table (per-robot wiring) |
