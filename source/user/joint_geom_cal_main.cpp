@@ -378,8 +378,11 @@ int main(int argc, char** argv) {
         apply_startq();
     };
 
-    // Reserve display lines: 3 header + 10 joints + 2 footer = 15.
-    constexpr int kTableLines = 15;
+    // Reserve display lines. Must EXACTLY match the number of '\n' the
+    // repaint emits below, or the cursor-up drifts and the table walks up
+    // the screen. Repaint prints: status(1) + col-header(1) + separator(1)
+    // + 10 joint rows + 1 blank footer = 14.
+    constexpr int kTableLines = 14;
     for (int i = 0; i < kTableLines; ++i) std::printf("\n");
     std::printf("\033[%dA", kTableLines);
     std::fflush(stdout);
