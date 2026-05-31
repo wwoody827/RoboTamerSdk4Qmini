@@ -33,8 +33,8 @@ cd .. && python3 tools/apply_limit_calibration.py /tmp/r.yaml --apply
 ```
 
 This reads `bin/canonical_joint_limits.yaml` and reproduces your locked
-calibration (jog refinement baked in) from a limp sweep alone — no
-jogging needed. ~30 s. Done.
+calibration (geometric refinement baked in) from a limp sweep alone — no
+geom/jog step needed. ~30 s. Done.
 
 **First-time bring-up, after a window slip, or if you don't trust the
 calibration** — run the full 3-stage flow below.
@@ -77,34 +77,40 @@ hip_roll). hip_roll is the usual victim. See
 
 ### The calibration identity
 
-For both tools the math reduces to: at any physical pose the robot
+For every tool the math reduces to: at any physical pose the robot
 actually reaches,
 
 ```
 startq_true[j] = startq_now[j] + (q_read[j] − q_target[j])
 ```
 
-`joint_range_tool` uses the mechanical stops as the known `q_target`;
-`joint_jog_tool` uses precomputed reference poses.
+`joint_range_tool` uses the mechanical stops as `q_target`;
+`joint_geom_cal_tool` uses the geometric-landmark angles;
+`joint_jog_tool` (legacy) uses precomputed reference poses.
 
-### Per-joint method — why two tools
+### Per-joint method — limits seat the windows, geometry pins the zeros
 
-Not every joint can be calibrated the same way:
+Two complementary references:
 
-- **hip_pitch / knee / ankle (6 joints):** their URDF range is entirely
-  one side of 0, so **`q=0` is a real mechanical stop**. The limit
-  sweep pins them to <1°. They do **not** need jogging.
-- **hip_yaw / hip_roll (4 joints):** their range straddles 0, so `q=0`
-  is mid-range with **no mechanical reference**. The limit sweep can
-  only estimate them by *midpoint* of the two stops (imprecise), and
-  hip_yaw in particular has no IMU handle (yaw doesn't tilt the body).
-  These are what the **jog tool** fixes — hip_yaw by feet-forward,
-  hip_roll by body-roll-level.
+- **Mechanical stops (the limit sweep)** seat every joint in the correct
+  encoder window and give a good first `startq`. For **hip_pitch / knee /
+  ankle** the URDF range is entirely one side of 0, so `q=0` is a real
+  hard stop and the sweep pins them to ~1°. For **hip_yaw / hip_roll**
+  the range straddles 0, so the sweep can only estimate them by the
+  *midpoint* of the two stops (imprecise).
+- **Geometric landmarks (`joint_geom_cal_tool`)** then pin each joint
+  independently to a precise URDF angle — foot ⟂ shank, thigh
+  horizontal, leg in the sagittal plane, etc. This decouples every joint
+  from every other and from the sweep's accuracy, and — crucially — it
+  can *decompose* a body-pitch error that the IMU alone cannot (the IMU
+  only sees the sum `ankle + knee + hip_pitch`).
 
-So the final `startq` is a **merge**: jog values for the 4 yaw/roll
-joints, limit-bootstrap values for the 6 sagittal joints. The canonical
-step then bakes the jog-refined zero into the limit reference so future
-reboots reproduce it from a sweep alone.
+So the recommended flow is: **limit bootstrap (Stage 1) → geometric
+per-joint pin (Stage 1.5) → re-record canonical (Stage 3) → CoM balance
+(Stage 4)**. The canonical step bakes the refined zeros into the limit
+reference, so future reboots reproduce the whole calibration from a limp
+sweep alone. (The older PD-jog method, Stage 2, still works for
+hip_yaw/hip_roll when no square/level is handy.)
 
 ---
 
@@ -337,12 +343,86 @@ From now on the [TL;DR](#tldr) daily path reproduces this exact `startq`.
 
 ---
 
+## Touching up one joint later
+
+If, after a full calibration, a single joint is visibly off (e.g. one leg
+leans more than the other), you don't have to redo everything.
+`joint_geom_cal_tool` only changes the joint(s) you capture — the rest
+keep their current `config.yaml` values on save.
+
+1. Run `./joint_geom_cal_tool`, select just that joint (digit or arrows),
+   pose its landmark, **SPACE**, then **`w`**. Only that joint moves.
+   (Re-capturing a joint at the *same* landmark gives the *same* value —
+   that's correct, not a bug. To actually move it you must change the
+   physical reference.)
+   - For a body-**roll** residual specifically: the front-view hip_roll
+     landmark is an eyeball. If you need it finer, trim against the IMU
+     instead — `./joint_jog_tool --independent`, select the hip_roll,
+     trim `h`/`l` until IMU `r` ≈ 0 (only the off side; use the good leg
+     as the symmetry reference).
+2. Re-sync canonical. A full re-sweep (Stage 3) always works, but if
+   **only one joint changed** you can shift just its canonical entry by
+   the `startq` delta instead of re-sweeping — the physical stop didn't
+   move, only its q-frame:
+
+   ```
+   q_new = q_old + (startq_old − startq_new)
+   ```
+
+   Add that delta to the joint's `measured_min`/`measured_max` in the
+   ranges yaml, then `apply_limit_calibration.py <yaml> --record-canonical`.
+
+---
+
+## Stage 4 — CoM balance & adopt the standing pose
+
+With `startq` correct the body is level at MGTO, but the real robot's CoM
+differs from the URDF (heavier head, battery, cabling), so it can still
+tip. `ref_calibration_tool` finds the small foot translation that puts the
+CoM over the foot polygon and writes the balancing standing pose.
+
+1. Run it (limp → pre-motion `y` → ramp → MGTO hold → dx/dy tuning):
+
+   ```bash
+   cd ~/code/RoboTamerSdk4Qmini/bin && ./ref_calibration_tool
+   ```
+
+2. At the **MGTO hold**, confirm the body is level (IMU `rpy` ≈ 0). If
+   it's tilted *here*, that's a `startq` problem — go back to Stage 1.5,
+   not the dx/dy loop.
+3. In the tuning loop, nudge the feet (↑/↓ fore-aft, ←/→ stance width)
+   until it balances, then **Enter** to write `ref_pose_calibrated.yaml`.
+4. **Adopt it:** copy the `ref_joint_act` list from that file into
+   `bin/config.yaml::ref_joint_act` (the SDK does *not* auto-load it).
+   This is a small deploy-side CoM compensation — it intentionally
+   diverges a few degrees from the training pose
+   `QMINI_REF_JOINT_POSES_BY_Z[3]`.
+
+Full tool reference: `USAGE.md` §7.
+
+---
+
+## Save the calibration
+
+`config.yaml` (`startq` + `ref_joint_act`) and `canonical_joint_limits.yaml`
+are **robot-specific**. For a single-robot repo, commit them so the
+calibration survives a reset / reclone:
+
+```bash
+git add bin/config.yaml bin/canonical_joint_limits.yaml
+git commit -m "calibration: <date>"
+```
+
+---
+
 ## What gets written where
 
 | File | Written by | Read by | Tracked in git? |
 |---|---|---|---|
-| `bin/config.yaml::startq` | `apply_limit_calibration.py --apply`, `solve_startq.py --apply`, jog tool `w` | every SDK boot | yes (robot-specific — commit only for a single-robot repo) |
+| `bin/config.yaml::startq` | `joint_geom_cal_tool` `w`, `apply_limit_calibration.py --apply`, `solve_startq.py --apply`, `joint_jog_tool` `w` | every SDK boot | yes (robot-specific — commit only for a single-robot repo) |
+| `bin/config.yaml::ref_joint_act` | operator (paste from `ref_pose_calibrated.yaml`) | every SDK boot | yes (robot-specific) |
 | `bin/canonical_joint_limits.yaml` | `apply_limit_calibration.py --record-canonical` | `apply_limit_calibration.py` on later runs | yes (robot-specific) |
+| `bin/ref_pose_calibrated.yaml` | `ref_calibration_tool` (Enter) | nothing (operator copies `ref_joint_act` by hand) | no — gitignored |
 | `bin/cal_poses.yaml` | `joint_jog_tool --gen-poses` | `joint_jog_tool --poses` | **no** — gitignored, regenerable |
 | `*.bak` | every `--apply` / `w` save | — | no — gitignored |
 
@@ -350,13 +430,16 @@ From now on the [TL;DR](#tldr) daily path reproduces this exact `startq`.
 
 ## Verify the calibration
 
-Quick: at MGTO the body should sit level and the feet point forward.
-Re-run the jog tool, let it ramp to `mgto`, and just watch (don't
-record):
+The real check is the **Stage 4 MGTO hold** (`ref_calibration_tool`,
+before you touch the arrows): body level ⇒ IMU `rpy` ≈ 0. A standing
+test (`./run_interface --initial-mode 2`) is the final confirmation.
+
+For a startq-only spot-check that ramps to `mgto` and shows IMU `r/p` +
+`foot-fwd L/R` (all → 0), the legacy jog tool still works:
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/bin && ./joint_jog_tool --poses cal_poses.yaml --out /tmp/check.yaml
-# IMU r,p ≈ 0 ; foot-fwd L,R ≈ 0 ; q_read tracks q_cmd. Then 'f' to fold.
+# watch IMU r,p ≈ 0 and foot-fwd L,R ≈ 0, then 'f' to fold/exit
 ```
 
 ---
