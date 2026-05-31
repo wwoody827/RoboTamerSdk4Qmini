@@ -238,6 +238,21 @@ if (BACKEND STREQUAL "mujoco")
         INSTALL_RPATH "${MUJOCO_DIR}")
 endif()
 
+# Geometric-landmark startq calibration tool — motors limp; operator poses
+# each joint to a physical landmark (square / straightedge / level / view)
+# and presses SPACE to capture. Pins startq per joint independently of
+# mechanical stops. See GEOMETRIC_JOINT_CALIBRATION_SPEC.md.
+add_executable(joint_geom_cal_tool
+    source/user/joint_geom_cal_main.cpp
+)
+target_link_libraries(joint_geom_cal_tool PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    target_include_directories(joint_geom_cal_tool PRIVATE ${MUJOCO_PRIVATE_INC})
+    set_target_properties(joint_geom_cal_tool PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
 # Reference-pose calibration tool — drives the HAL motor backend through
 # stand mode at MGTO, lets the operator translate the feet via IK, writes
 # bin/ref_offset.yaml. See COM_CALIBRATION_SPEC.md. Builds for every backend.

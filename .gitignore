@@ -13,6 +13,7 @@ bin/motor_status
 bin/ref_calibration_tool
 bin/test_leg_ik
 bin/joint_range_tool
+bin/joint_geom_cal_tool
 bin/joint_jog_tool
 
 # Generated reference poses (regenerable: joint_jog_tool --gen-poses).

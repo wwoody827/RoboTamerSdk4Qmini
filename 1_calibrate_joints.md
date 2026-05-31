@@ -5,12 +5,13 @@ Calibrates `bin/config.yaml::startq` so the SDK's reported joint angle
 fresh robot, after any power cycle, and any time a motor loses power
 mid-run. No `run_interface` is involved at any step.
 
-Three tools, all robot-side:
+Four tools, all robot-side:
 
 | Tool | Lang | Run from | Role |
 |---|---|---|---|
 | `bin/joint_range_tool` | C++ | `bin/` | limp sweep of mechanical stops → ranges yaml |
-| `bin/joint_jog_tool` | C++ | `bin/` | multi-pose jog refinement of hip_yaw / hip_roll |
+| `bin/joint_geom_cal_tool` | C++ | `bin/` | limp per-joint geometric-landmark `startq` pin (square/level/view) |
+| `bin/joint_jog_tool` | C++ | `bin/` | multi-pose PD jog refinement of hip_yaw / hip_roll (legacy) |
 | `tools/apply_limit_calibration.py` | Python | repo root | ranges → `startq`; records canonical limits |
 | `tools/calibration_fit/solve_startq.py` | Python | repo root | jog records → `startq` (per-joint σ) |
 
@@ -141,6 +142,69 @@ Gets every joint into the correct encoder window and gives precise
 
    Corrections of a few degrees are normal. A `>0.2 rad` warning means a
    wrong-window stop or a bad URDF target — investigate before applying.
+
+---
+
+## Stage 1.5 — Geometric per-joint pin (optional, recommended)
+
+Pins each joint's `startq` to a precise URDF angle using a **physical
+landmark** (carpenter's square, straightedge, bubble level, top/front
+view) rather than the mechanical stop alone. This decouples each joint's
+calibration from every other and from the limit-sweep accuracy. See
+[`GEOMETRIC_JOINT_CALIBRATION_SPEC.md`](GEOMETRIC_JOINT_CALIBRATION_SPEC.md)
+for theory + landmark derivation.
+
+Five landmarks × 2 legs = 10 captures. Motors stay limp throughout.
+
+| Joint | Landmark | q_L target | Reference image |
+|---|---|---|---|
+| ankle | foot ⟂ shank (square) | −1.569 | [`ankle_perp`](docs/images/geom_cal/ankle_perp.png) |
+| knee | thigh ‖ shank, 180° (straightedge) | −0.084 | [`knee_straight`](docs/images/geom_cal/knee_straight.png) |
+| hip_yaw | leg in body sagittal plane (top + side view) | +0.400 | [`hip_yaw_forward`](docs/images/geom_cal/hip_yaw_forward.png) |
+| hip_roll | no lateral tilt (front view) | 0.000 | [`hip_roll_no_tilt`](docs/images/geom_cal/hip_roll_no_tilt.png) |
+| hip_pitch | thigh horizontal, torso vertical (bubble level + IMU) | −0.715 | [`hip_pitch_thigh_horizontal`](docs/images/geom_cal/hip_pitch_thigh_horizontal.png) |
+
+Right leg = negate each value.
+
+### Procedure
+
+```bash
+cd ~/code/RoboTamerSdk4Qmini/bin && ./joint_geom_cal_tool
+```
+
+The tool ships zero kp/kd/tau every tick; the robot does not move on its
+own. Workflow:
+
+1. With symmetric mode on (default), pose **both legs** at one
+   landmark simultaneously (e.g. carpenter's square on both ankles).
+2. `0`–`9` (or `[` / `]`) select the joint, **SPACE** captures both legs.
+3. Repeat for the other four landmarks. The tool's `✓` column tracks
+   which joints have been captured this session.
+4. `w` writes the new `startq` to `config.yaml` (+ `.bak`). `q` / `Esc`
+   aborts and reverts.
+
+### Operator notes
+
+- **hip_pitch needs the torso vertical.** Use the IMU readout on the
+  tool's status line (`rpy`, top of the table). Hold the body so
+  `pitch < 0.02 rad` while you bubble-level the thigh.
+- **ankle and knee are intra-leg** — no external reference needed. Do
+  these first; any body-pitch error after that is isolated to the
+  remaining joints.
+- **hip_yaw and hip_roll** are body-plane checks (top / side / front
+  views). Visually verify the leg is in the body's sagittal plane (no
+  splay) and drops straight down (no lateral tilt). These don't depend
+  on the sagittal chain.
+
+### After Stage 1.5
+
+`startq` is now pinned per joint with sub-degree accuracy. **Skip Stage 2
+(jog)** and proceed to Stage 3 to re-record canonical limits in the new
+frame, then return to the [TL;DR](#tldr) daily path.
+
+> Stage 2 (PD jog) remains documented below for the legacy workflow
+> and for hip_yaw / hip_roll refinement when no square/level is
+> available.
 
 ---
 
@@ -325,10 +389,16 @@ You ran a C++ tool from the wrong directory. Run `joint_range_tool` /
 Body-IMU leveling only sees the **sum** of the pitch chain
 (`θ_body = ankle + knee + hip_pitch`), so it can't tell you *which* of
 hip_pitch / knee / ankle is mis-calibrated — and multi-pose jogging
-can't either (same degenerate equation at every height). Use a
-**per-joint geometric reference** instead (foot ⟂ shank, knee ⟂ shank,
-thigh horizontal) to decompose and find the bad joint. Full method +
-verified target angles + the tool spec:
+can't either (same degenerate equation at every height).
+
+Fix: run [Stage 1.5](#stage-15--geometric-per-joint-pin-optional-recommended)
+with `./joint_geom_cal_tool`. The ankle ⟂ shank and knee straight
+landmarks are **intra-leg** — they decompose the chain and pin those
+two joints with sub-degree accuracy independent of the others. After
+they're right, any residual body-pitch error is fully attributable to
+hip_pitch (capture its thigh-horizontal landmark).
+
+Full method + verified target angles + spec:
 [`GEOMETRIC_JOINT_CALIBRATION_SPEC.md`](GEOMETRIC_JOINT_CALIBRATION_SPEC.md).
 
 ---
