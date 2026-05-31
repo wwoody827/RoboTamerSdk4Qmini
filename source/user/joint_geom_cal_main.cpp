@@ -119,8 +119,8 @@ void print_usage(const char* prog) {
         "ankle_r = 9) — calibrate all 10 individually.\n"
         "\n"
         "Keys (raw terminal):\n"
-        "  0-9      select joint (cursor moves)\n"
-        "  [ / ]    select prev / next joint\n"
+        "  0-9      select joint by number\n"
+        "  ↑/↓      move selection (also ←/→, or [ / ])\n"
         "  SPACE    CAPTURE selected joint: startq[j] += (q_read - target)\n"
         "  r        revert all session changes (back to original startq)\n"
         "  w        WRITE new startq to config.yaml (+ .bak)\n"
@@ -136,7 +136,7 @@ void print_usage(const char* prog) {
 }
 
 // ---------------------------------------------------------------------------
-// Raw stdin reader. Keys: 0-9, [, ], SPACE, r, w, q, Esc.
+// Raw stdin reader. Keys: 0-9, arrows, [, ], SPACE, r, w, q, Esc.
 // ---------------------------------------------------------------------------
 enum class Cmd { None, Sel0to9, Prev, Next, Capture, Revert, Save, Abort };
 
@@ -183,6 +183,23 @@ private:
                 std::lock_guard<std::mutex> g(mu_);
                 for (ssize_t i = 0; i < n; ++i) {
                     char c = buf[i];
+                    // Arrow keys arrive as a 3-byte sequence ESC [ A/B/C/D.
+                    // Move the selection: up/left = prev, down/right = next.
+                    if (c == 0x1b && i + 2 < n && buf[i + 1] == '[') {
+                        switch (buf[i + 2]) {
+                            case 'A': case 'D':   // up / left
+                                queue_.push_back({Cmd::Prev, 0}); break;
+                            case 'B': case 'C':   // down / right
+                                queue_.push_back({Cmd::Next, 0}); break;
+                            default: break;
+                        }
+                        i += 2;
+                        continue;
+                    }
+                    if (c == 0x1b) {              // bare Esc = abort
+                        queue_.push_back({Cmd::Abort, 0});
+                        continue;
+                    }
                     if (c >= '0' && c <= '9')
                         queue_.push_back({Cmd::Sel0to9, c - '0'});
                     else if (c == '[')          queue_.push_back({Cmd::Prev, 0});
@@ -190,8 +207,7 @@ private:
                     else if (c == ' ')          queue_.push_back({Cmd::Capture, 0});
                     else if (c == 'r' || c == 'R') queue_.push_back({Cmd::Revert, 0});
                     else if (c == 'w' || c == 'W') queue_.push_back({Cmd::Save, 0});
-                    else if (c == 'q' || c == 'Q' || c == 0x1b)
-                        queue_.push_back({Cmd::Abort, 0});
+                    else if (c == 'q' || c == 'Q') queue_.push_back({Cmd::Abort, 0});
                 }
             }
         }
@@ -320,7 +336,7 @@ int main(int argc, char** argv) {
         "  Pose ONE joint to its landmark, select it, then SPACE to capture.\n"
         "  All 10 joints calibrated individually (left and right separately).\n"
         "\n"
-        "  Keys:  0-9 select   [/] prev/next   SPACE capture\n"
+        "  Keys:  0-9 select   ↑/↓ move   SPACE capture\n"
         "         r revert   w save   q/Esc abort\n"
         "================================================================\n");
     std::fflush(stdout);
