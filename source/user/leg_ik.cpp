@@ -126,6 +126,11 @@ LegIK::LegIK(const std::array<float, 10>& ref_joint_act)
 
 std::array<float, 10> LegIK::solve(double dx_foot, double dy_foot,
                                    bool* success_out) const {
+    return solve(dx_foot, dy_foot, 0.0, success_out);
+}
+
+std::array<float, 10> LegIK::solve(double dx_foot, double dy_foot,
+                                   double dz_foot, bool* success_out) const {
     std::array<float, 10> dq{};
     bool ok = true;
 
@@ -141,7 +146,7 @@ std::array<float, 10> LegIK::solve(double dx_foot, double dy_foot,
         double q_a  = ref_[idx_a];
         const bool side_ok = sagittal_ik(side,
                                          fx_mgto + dx_foot,
-                                         fz_mgto,
+                                         fz_mgto + dz_foot,
                                          q_hp, q_k, q_a);
         if (!side_ok) ok = false;
         dq[idx_hp] = static_cast<float>(q_hp - ref_[idx_hp]);

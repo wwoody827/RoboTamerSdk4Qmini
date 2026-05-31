@@ -252,6 +252,21 @@ if (BACKEND STREQUAL "mujoco")
         INSTALL_RPATH "${MUJOCO_DIR}")
 endif()
 
+# Joint jog + startq calibration tool — drives the HAL motor backend to a set
+# of LegIK-generated reference poses, lets the operator jog joints + trim
+# startq while watching the IMU, and records (q_read - q_ref) per pose for
+# tools/calibration_fit/solve_startq.py. Builds under every backend.
+add_executable(joint_jog_tool
+    source/user/joint_jog_tool.cpp
+)
+target_link_libraries(joint_jog_tool PRIVATE qmini_user)
+if (BACKEND STREQUAL "mujoco")
+    target_include_directories(joint_jog_tool PRIVATE ${MUJOCO_PRIVATE_INC})
+    set_target_properties(joint_jog_tool PROPERTIES
+        BUILD_RPATH   "${MUJOCO_DIR}"
+        INSTALL_RPATH "${MUJOCO_DIR}")
+endif()
+
 # PD calibration tool — drives the HAL motor backend through the protocol in
 # PD_CALIBRATION_SPEC.md. No policy / no ONNX. Builds under every preset
 # (sim / mujoco / hardware) because it only uses the HAL surface.

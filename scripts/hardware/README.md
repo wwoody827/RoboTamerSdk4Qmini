@@ -24,3 +24,32 @@ They live here, not in `bin/`, because `bin/` is for **compiled outputs**
 (`run_interface`, `pd_calibration_tool`, …) that real-time work depends on.
 
 For canonical motor↔FTDI mapping see `../../MOTOR_PORT_MAP.md`.
+
+## Troubleshooting
+
+### Motors intermittently "do not reply" (shifting set each boot)
+
+Symptom: `motor_status` / any tool reports `motor id=N does not reply`
+for a *different* set of motors on each run (e.g. 8/10, then 6/10, then
+2/10), and the LEDs are all flashing green (= powered, healthy). Running
+with `sudo` seems to "fix" it intermittently.
+
+Cause: **`ModemManager`**. On every boot/hotplug it probes each FTDI
+`ttyUSB` port (opens it, sends AT commands for up to ~30 s) looking for a
+cellular modem, holding the port so the motor SDK's reads time out. It
+grabs different ports at different moments → the failing set shifts run
+to run. `sudo` only appears to help because by the time you re-run, MM
+has finished probing and released the ports.
+
+This is **not** a power, wiring, or dialout-permission problem. The robot
+has no cellular modem, so ModemManager has no purpose here. Mask it:
+
+```bash
+sudo systemctl mask --now ModemManager
+systemctl is-active ModemManager     # -> inactive
+```
+
+Then a fresh boot gives a stable 10/10 with no `sudo` (your user just
+needs to be in the `dialout` group: `sudo usermod -aG dialout $USER`,
+then re-login). If you must keep ModemManager, instead add a udev rule
+tagging the FTDI adapters with `ID_MM_DEVICE_IGNORE=1`.

@@ -37,6 +37,13 @@ public:
     std::array<float, 10> solve(double dx_foot_m, double dy_foot_m,
                                 bool* success_out = nullptr) const;
 
+    // Height-aware variant. dz_foot_m > 0 raises BOTH feet in the body frame
+    // (i.e. the body lowers — a crouch); dz_foot_m < 0 extends the legs
+    // (taller). Body stays level and feet stay flat/forward, same as solve().
+    // Used to generate multi-height reference poses for startq calibration.
+    std::array<float, 10> solve(double dx_foot_m, double dy_foot_m,
+                                double dz_foot_m, bool* success_out) const;
+
     // Public for tests: foot position in body frame given the full joint
     // vector. Sagittal only (foot_x, foot_z) -- lateral is approx.
     void fk_foot(int side /*0=L 1=R*/,
