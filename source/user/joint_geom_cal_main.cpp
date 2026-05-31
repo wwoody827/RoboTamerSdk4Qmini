@@ -354,14 +354,17 @@ int main(int argc, char** argv) {
 
     auto capture = [&](int j) {
         auto st = motor->read();
-        // q_read = raw - (startq0 + dsq) ⇒ raw = q_read + startq0 + dsq.
-        // We want new startq = raw - target ⇒ new dsq = q_read - target.
-        // Set the CUMULATIVE delta directly (don't add).
-        dsq[j] = st.q[j] - kTarget[j];
+        // st.q = raw - (startq0 + dsq), so the joint's current error from the
+        // landmark is (st.q - target). Correcting startq by that error makes
+        // the joint read `target` at this pose. Accumulate it onto the
+        // existing delta (`+=`, not `=`) so that re-capturing a joint whose
+        // dsq is already non-zero this session stays correct:
+        //   new startq = (startq0 + dsq) + (st.q - target) = raw - target.
+        dsq[j] += st.q[j] - kTarget[j];
         captured[j] = true;
         if (symmetric) {
             int m = mirror_of(j);
-            dsq[m] = st.q[m] - kTarget[m];
+            dsq[m] += st.q[m] - kTarget[m];
             captured[m] = true;
         }
         apply_startq();
