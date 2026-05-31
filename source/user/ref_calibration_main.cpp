@@ -3,8 +3,8 @@
 // Drives the HAL motor backend through stand mode at the MGTO pose
 // (config.yaml::ref_joint_act), letting the operator translate the feet
 // forward/back and lateral via arrow keys while keeping the body level
-// and feet flat. Writes a 10-vector of joint deltas to
-// `bin/ref_offset.yaml` on Enter.
+// and feet flat. Writes the calibrated absolute joint pose to
+// `bin/ref_pose_calibrated.yaml` on Enter.
 //
 // See COM_CALIBRATION_SPEC.md for the protocol.
 //
@@ -74,29 +74,27 @@ void print_usage(const char* prog) {
         "  → / ←     dy_foot ±2 mm  (widen / narrow stance)\n"
         "  r         reset deltas to zero\n"
         "  s         (re-)apply slew toward current target\n"
-        "  Enter     accept and write ref_offset.yaml\n"
+        "  Enter     accept and write ref_pose_calibrated.yaml\n"
         "  Esc / q   abort without writing\n"
         "\n"
+        "This tool ONLY tunes the MGTO standing pose (CoM). startq is\n"
+        "calibrated separately by joint_jog_tool — see 1_calibrate_joints.md.\n"
+        "\n"
         "Safety workflow (matches pd_calibration_tool):\n"
-        "  1. Optional startq zero calibration (motors limp, hand-pose to zero,\n"
-        "     average, accept). Save to config.yaml on accept.\n"
-        "  2. Pre-motion confirmation — explicit y/Enter before any motion.\n"
-        "  3. Smooth ramp from measured pose to MGTO (configurable duration).\n"
-        "  4. MGTO confirmation — verify the standing pose looks correct.\n"
-        "  5. Operator pose-tuning loop (arrow keys, this is where the IK runs).\n"
+        "  1. Pre-motion confirmation — explicit y/Enter before any motion.\n"
+        "  2. Smooth ramp from measured pose to MGTO (configurable duration).\n"
+        "  3. MGTO confirmation — verify the standing pose looks correct.\n"
+        "  4. Operator pose-tuning loop (arrow keys, this is where the IK runs).\n"
         "Use --yes to skip all prompts (sim / scripted runs only).\n"
         "\n"
         "Options:\n"
-        "  -y, --yes              skip ALL confirmation prompts (no zero-cal,\n"
-        "                         no pre-motion gate, no MGTO gate). Sim only.\n"
-        "  --no-zero-cal          skip the startq zero calibration phase\n"
-        "  --zero-cal-countdown <s>  hand-position countdown (default 10)\n"
-        "  --zero-cal-measure <s>    averaging window (default 5)\n"
+        "  -y, --yes              skip ALL confirmation prompts (no pre-motion\n"
+        "                         gate, no MGTO gate). Sim only.\n"
         "  --ramp-in-s <s>        ramp from measured pose to MGTO (default 2)\n"
         "  --step-mm <int>        ±step in mm per arrow press (default 2)\n"
         "  --max-mm <int>         absolute cap on |dx|, |dy| (default 50)\n"
         "  --slew-ms <int>        slew time per key press (default 200 ms)\n"
-        "  --out <path>           output yaml (default bin/ref_offset.yaml)\n"
+        "  --out <path>           output yaml (default bin/ref_pose_calibrated.yaml)\n"
         "  --mjcf <path>          mujoco backend: which MJCF to load.\n"
         "                       Sim dry-run (robot stays put, no falling):\n"
         "                          --mjcf sim_assets/q1_sim_hung.mjcf\n"
@@ -117,8 +115,6 @@ void print_usage(const char* prog) {
 
 enum class Cmd { None,
                  IncDx, DecDx, IncDy, DecDy,
-                 IncPitch, DecPitch, IncRoll, DecRoll,  // phase 4.5: startq nudge
-                 NextPhase,                              // phase 4.5 → 5 transition
                  Reset, Reslew, Accept, Abort };
 
 class KeyboardCmd {
@@ -192,14 +188,7 @@ private:
                 case '\n': case '\r': queue_.push_back(Cmd::Accept); break;
                 case 'q': case 'Q':   queue_.push_back(Cmd::Abort);  break;
                 case 'r': case 'R':   queue_.push_back(Cmd::Reset);  break;
-                case 'n': case 'N':   queue_.push_back(Cmd::NextPhase); break;
-                // Phase 4.5 startq adjustments. WASD around the body axes:
-                //   w/s  tilt body pitch  (via ANKLE startq, L+R symmetric)
-                //   a/d  tilt body roll   (via HIP_ROLL startq, asymmetric)
-                case 'w': case 'W':   queue_.push_back(Cmd::IncPitch); break;
-                case 's': case 'S':   queue_.push_back(Cmd::DecPitch); break;
-                case 'a': case 'A':   queue_.push_back(Cmd::IncRoll);  break;
-                case 'd': case 'D':   queue_.push_back(Cmd::DecRoll);  break;
+                case 's': case 'S':   queue_.push_back(Cmd::Reslew); break;
                 default: break;
             }
         }
@@ -273,138 +262,6 @@ bool write_ref_pose_yaml(const std::string& path,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// startq zero calibration — same protocol as pd_calibration_tool. Motors go
-// limp; operator hand-poses to URDF zero; we average for measure_s. The
-// caller decides whether to apply and save.
-// Code duplicated (intentionally local) so changes here don't reach across
-// to pd_calibration_main.cpp without an explicit edit.
-// ---------------------------------------------------------------------------
-
-bool run_startq_calibration(
-    qmini::hal::IMotorBackend* motor,
-    const std::vector<float>& old_startq,
-    double countdown_s, double measure_s, double tick_hz,
-    std::array<float, kNumJoints>& out_new) {
-    using clk = std::chrono::steady_clock;
-    const long period_us = static_cast<long>(1e6 / tick_hz);
-
-    std::printf("\n=== startq zero calibration ===\n");
-    std::printf("Motors are LIMP. By hand, move the robot to the ZERO pose\n"
-                "(every joint at its natural/URDF zero) and hold it there.\n"
-                "Countdown: %.0f s to position, then averaging for %.0f s.\n"
-                "Ctrl-C aborts.\n\n", countdown_s, measure_s);
-    std::fflush(stdout);
-
-    auto cd_start = clk::now();
-    auto cd_end   = cd_start + std::chrono::duration_cast<clk::duration>(
-                                   std::chrono::duration<double>(countdown_s));
-    auto next = clk::now();
-    auto last_print = clk::now() - std::chrono::seconds(1);
-    while (clk::now() < cd_end && !g_abort) {
-        qmini::hal::MotorCmdFrame limp{};
-        motor->send(limp);
-        auto st = motor->read();
-        auto now = clk::now();
-        if (now - last_print > std::chrono::milliseconds(200)) {
-            double remaining =
-                std::chrono::duration<double>(cd_end - now).count();
-            std::printf("\r  [move to zero: %4.1f s] q:", remaining);
-            for (int i = 0; i < kNumJoints; ++i) std::printf(" %+.3f", st.q[i]);
-            std::printf("   ");
-            std::fflush(stdout);
-            last_print = now;
-        }
-        next += std::chrono::microseconds(period_us);
-        std::this_thread::sleep_until(next);
-    }
-    if (g_abort) { std::printf("\n[zerocal] aborted.\n"); return false; }
-
-    std::printf("\n  >>> MEASURING for %.0f s — HOLD STILL <<<\n", measure_s);
-    std::fflush(stdout);
-    std::array<double, kNumJoints> sum{};
-    std::size_t n = 0;
-    auto m_end = clk::now() + std::chrono::duration_cast<clk::duration>(
-                                  std::chrono::duration<double>(measure_s));
-    next = clk::now();
-    last_print = clk::now() - std::chrono::seconds(1);
-    while (clk::now() < m_end && !g_abort) {
-        qmini::hal::MotorCmdFrame limp{};
-        motor->send(limp);
-        auto st = motor->read();
-        for (int i = 0; i < kNumJoints; ++i) sum[i] += st.q[i];
-        ++n;
-        auto now = clk::now();
-        if (now - last_print > std::chrono::milliseconds(200)) {
-            double remaining =
-                std::chrono::duration<double>(m_end - now).count();
-            std::printf("\r  [measuring: %4.1f s, n=%zu] ", remaining, n);
-            std::fflush(stdout);
-            last_print = now;
-        }
-        next += std::chrono::microseconds(period_us);
-        std::this_thread::sleep_until(next);
-    }
-    std::printf("\n");
-    if (g_abort || n == 0) {
-        std::printf("[zerocal] aborted — startq unchanged.\n");
-        return false;
-    }
-
-    std::printf("[zerocal] averaged %zu samples over ~%.0f s\n", n, measure_s);
-    std::printf("  %-12s %10s %10s\n", "joint", "old", "new");
-    for (int i = 0; i < kNumJoints; ++i) {
-        const float old_i =
-            (i < static_cast<int>(old_startq.size())) ? old_startq[i] : 0.f;
-        out_new[i] = old_i + static_cast<float>(sum[i] / static_cast<double>(n));
-        std::printf("  %-12s %10.4f %10.4f\n",
-                    kJointNames[i], old_i, out_new[i]);
-    }
-    return true;
-}
-
-bool save_startq_to_config(
-    const std::string& path,
-    const std::array<float, kNumJoints>& sq) {
-    std::ifstream in(path);
-    if (!in) {
-        std::fprintf(stderr, "[zerocal] cannot read %s\n", path.c_str());
-        return false;
-    }
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(in, line)) lines.push_back(line);
-    in.close();
-    {
-        std::ofstream bak(path + ".bak");
-        if (bak) for (const auto& l : lines) bak << l << "\n";
-    }
-    std::ostringstream rep;
-    rep << "startq: [";
-    for (int i = 0; i < kNumJoints; ++i) {
-        rep << std::fixed << std::setprecision(6) << sq[i];
-        if (i + 1 < kNumJoints) rep << ", ";
-    }
-    rep << "]";
-    bool found = false;
-    for (auto& l : lines) {
-        const std::size_t p = l.find_first_not_of(" \t");
-        if (p != std::string::npos && l.compare(p, 7, "startq:") == 0) {
-            l = rep.str();
-            found = true;
-            break;
-        }
-    }
-    if (!found) lines.push_back(rep.str());
-    std::ofstream out(path);
-    if (!out) {
-        std::fprintf(stderr, "[zerocal] cannot write %s\n", path.c_str());
-        return false;
-    }
-    for (const auto& l : lines) out << l << "\n";
-    return true;
-}
-
 bool prompt_yn(const char* msg, bool default_yes = false) {
     std::printf("%s", msg);
     std::fflush(stdout);
@@ -427,9 +284,6 @@ int main(int argc, char** argv) {
     double tick_hz = 0.0;
     bool   want_viewer = true;
     bool   assume_yes = false;
-    bool   no_zero_cal = false;
-    double zero_cal_countdown = 10.0;
-    double zero_cal_measure   = 5.0;
     double ramp_in_s = 2.0;
 
     for (int i = 1; i < argc; ++i) {
@@ -452,11 +306,6 @@ int main(int argc, char** argv) {
         else if (a == "--iface")   iface = next("--iface");
         else if (a == "--tick-hz") tick_hz = std::atof(next("--tick-hz"));
         else if (a == "-y" || a == "--yes") assume_yes = true;
-        else if (a == "--no-zero-cal") no_zero_cal = true;
-        else if (a == "--zero-cal-countdown")
-            zero_cal_countdown = std::atof(next("--zero-cal-countdown"));
-        else if (a == "--zero-cal-measure")
-            zero_cal_measure = std::atof(next("--zero-cal-measure"));
         else if (a == "--ramp-in-s") ramp_in_s = std::atof(next("--ramp-in-s"));
         else {
             std::fprintf(stderr, "unknown arg: %s\n", a.c_str());
@@ -466,7 +315,6 @@ int main(int argc, char** argv) {
     const double step_m = step_mm * 1e-3;
     const double max_m  = max_mm  * 1e-3;
     const double slew_s = std::max(0.05, slew_ms * 1e-3);
-    constexpr double kStartqStep = 0.005;  // rad per w/s/a/d press
 
     // Load config.yaml from CWD (same convention as run_interface).
     ConfigParams cfg;
@@ -564,7 +412,7 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, handle_sigint);
 
     // Declared up here so teardown can stop() it whether or not we
-    // reached Phase 5 (start() is only called at Phase 5; stop() on a
+    // reached Phase 4 (start() is only called at Phase 4; stop() on a
     // never-started KeyboardCmd is a safe no-op).
     KeyboardCmd keys;
 
@@ -601,43 +449,9 @@ int main(int argc, char** argv) {
     };
 
     // ------------------------------------------------------------------
-    // Phase 1: optional startq zero calibration. Motors limp; operator
-    // hand-poses to URDF zero; we measure + (optionally) save.
-    // Interactive — runs in cooked stdin mode.
-    // ------------------------------------------------------------------
-    if (!assume_yes && !no_zero_cal) {
-        if (prompt_yn("\nRun startq zero calibration first? [Y/n]: ", true)) {
-            std::array<float, kNumJoints> new_startq{};
-            const double zerocal_hz = (tick_hz > 0.0) ? tick_hz : (1.0 / dt);
-            if (run_startq_calibration(motor.get(), cfg.startq,
-                                       zero_cal_countdown, zero_cal_measure,
-                                       zerocal_hz, new_startq)) {
-                if (prompt_yn(
-                        "\nAccept these values? They will be applied now AND "
-                        "saved to config.yaml\n(picked up by future runs and "
-                        "run_interface). [y/N]: ", false)) {
-                    motor->set_zero_offset(new_startq);
-                    if (save_startq_to_config("config.yaml", new_startq)) {
-                        std::printf("[zerocal] applied + saved to "
-                                    "config.yaml (backup: config.yaml.bak).\n");
-                    } else {
-                        std::printf("[zerocal] applied to this session, "
-                                    "but SAVE FAILED — lost after this run.\n");
-                    }
-                } else {
-                    std::printf("[zerocal] rejected — startq unchanged.\n");
-                }
-            }
-        } else {
-            std::printf("[zerocal] skipped.\n");
-        }
-        if (g_abort) { motor->stop(); if (imu) imu->stop(); return 0; }
-    }
-
-    // ------------------------------------------------------------------
-    // Phase 2: pre-motion confirmation. Until this point the motors have
-    // been limp (or briefly driven by zero-cal limp commands). The next
-    // step issues PD with config.yaml kp/kd — require explicit y.
+    // Phase 1: pre-motion confirmation. Until this point the motors have
+    // been limp. The next step issues PD with config.yaml kp/kd — require
+    // explicit y.
     // ------------------------------------------------------------------
     if (!assume_yes) {
         std::printf("\n  About to drive the robot to MGTO and enter the\n"
@@ -661,7 +475,7 @@ int main(int argc, char** argv) {
     }
 
     // ------------------------------------------------------------------
-    // Phase 3: ramp measured -> MGTO at config.yaml kp/kd.
+    // Phase 2: ramp measured -> MGTO at config.yaml kp/kd.
     // ramp_start is in CONTROLLER frame; subtract dynamic_zero from raw
     // encoder reading (mirror of qmini_app::control_tick).
     // ------------------------------------------------------------------
@@ -695,7 +509,7 @@ int main(int argc, char** argv) {
     if (g_abort.load()) goto teardown;
 
     // ------------------------------------------------------------------
-    // Phase 4: MGTO confirmation. Robot is now physically holding MGTO
+    // Phase 3: MGTO confirmation. Robot is now physically holding MGTO
     // via the last sent PD command (hardware backend keeps re-sending;
     // mujoco backend has physics frozen until next send_cmd).
     // ------------------------------------------------------------------
@@ -713,144 +527,11 @@ int main(int argc, char** argv) {
     }
 
     // ------------------------------------------------------------------
-    // Phase 4.5: IMU-grounded startq refinement.
-    //
-    // The robot is now physically holding MGTO via PD. If startq is right,
-    // body should be level (IMU pitch=roll=0). If it isn't, the operator
-    // nudges startq for ankle (pitch chain) and hip_roll (roll axis) until
-    // IMU settles near zero.
-    //
-    // The math: at commanded MGTO with feet flat on ground, "body pitch in
-    // world" = −(cumulative foot pitch error in body frame). To shrink body
-    // pitch by ε, change physical ankle by ε relative to commanded (the
-    // ankle is last in the chain → most direct effect). That means shifting
-    // startq[ankle] — for L (sign_a=+1) decrease, for R (sign_a=−1)
-    // increase, in symmetric magnitude.
-    //
-    // Roll is corrected via hip_roll (the only roll DoF). L and R
-    // hip_roll URDF axes are both +X → adjusting them with opposite
-    // signs creates a body roll torque.
-    //
-    // On Enter, the new startq is saved to config.yaml (with .bak) and
-    // we drop into Phase 5 (dx/dy CoM correction).
+    // Phase 4: operator pose-tuning loop (CoM correction). Arrow keys drive
+    // (dx, dy); the IK solves the pose, and we slew live_dq -> target_dq
+    // with a first-order alpha. On Enter, write the calibrated pose.
     // ------------------------------------------------------------------
     keys.start();
-    {
-        std::printf("\n"
-            "================================================================\n"
-            "  Phase 4.5: IMU-grounded startq refinement\n"
-            "\n"
-            "  Robot is holding MGTO with PD. Place it on a flat floor and\n"
-            "  observe the IMU readout. Nudge startq until rpy is near zero.\n"
-            "\n"
-            "  Keys:\n"
-            "    w / s     ANKLE pitch  ±%.3f rad (L+/R-,  L-/R+)\n"
-            "              w → body pitches forward (head down)\n"
-            "              s → body pitches backward (head up)\n"
-            "    a / d     HIP_ROLL ±%.3f rad (L+/R-, opposite signs)\n"
-            "    r         reset all startq adjustments\n"
-            "    n         next phase: save startq + start dx/dy loop\n"
-            "    q/Esc     abort\n"
-            "================================================================\n",
-            kStartqStep, kStartqStep);
-        std::fflush(stdout);
-
-        std::array<float, kNumJoints> original_startq{};
-        for (int i = 0; i < kNumJoints; ++i) original_startq[i] = hw.startq[i];
-        std::array<float, kNumJoints> dsq{};      // cumulative adjustment
-
-        auto apply_startq = [&]() {
-            std::array<float, kNumJoints> new_sq;
-            for (int i = 0; i < kNumJoints; ++i) new_sq[i] = original_startq[i] + dsq[i];
-            motor->set_zero_offset(new_sq);
-        };
-
-        bool advanced = false;
-        bool aborted_p45  = false;
-        int print_throttle = 0;
-        const int print_period_ticks = std::max(1, static_cast<int>(0.2 / dt));
-
-        while (!g_abort.load()) {
-            // Hold MGTO at current startq.
-            float qcmd[kNumJoints];
-            for (int i = 0; i < kNumJoints; ++i) qcmd[i] = ref_q[i];
-            send_cmd(qcmd, 1.f, 1.f);
-
-            // Process keys.
-            Cmd c;
-            bool dirty = false;
-            while ((c = keys.pop()) != Cmd::None) {
-                const float step = static_cast<float>(kStartqStep);
-                switch (c) {
-                    case Cmd::IncPitch:
-                        // body pitch decreases (head down). For L (sign_a=+1):
-                        // decrease physical ankle → decrease startq.
-                        // For R (sign_a=-1): increase physical ankle → increase startq.
-                        dsq[4] -= step; dsq[9] += step;
-                        dirty = true; break;
-                    case Cmd::DecPitch:
-                        dsq[4] += step; dsq[9] -= step;
-                        dirty = true; break;
-                    case Cmd::IncRoll:
-                        // body roll. Both hip_rolls axis = +X. Opposite signs
-                        // produce body roll. Sign chosen so 'd' rolls right.
-                        dsq[1] += step; dsq[6] -= step;
-                        dirty = true; break;
-                    case Cmd::DecRoll:
-                        dsq[1] -= step; dsq[6] += step;
-                        dirty = true; break;
-                    case Cmd::Reset:
-                        dsq = {};
-                        dirty = true; break;
-                    case Cmd::NextPhase:
-                    case Cmd::Accept:
-                        advanced = true; break;
-                    case Cmd::Abort:
-                        aborted_p45 = true; break;
-                    default: break;
-                }
-                if (advanced || aborted_p45) break;
-            }
-            if (advanced || aborted_p45) break;
-            if (dirty) apply_startq();
-
-            // Throttled status.
-            if (++print_throttle >= print_period_ticks) {
-                print_throttle = 0;
-                auto base = imu ? imu->read() : qmini::hal::BaseStateFrame{};
-                std::printf("\r\x1b[K[startq] IMU rpy=(%+5.3f, %+5.3f, %+5.3f) rad  "
-                            "Δsq ank=(%+5.3f,%+5.3f) hp_roll=(%+5.3f,%+5.3f)  "
-                            "wasd/n/r/q",
-                            base.rpy[0], base.rpy[1], base.rpy[2],
-                            dsq[4], dsq[9], dsq[1], dsq[6]);
-                std::fflush(stdout);
-            }
-            sleep_until_next(t_tick);
-        }
-        std::printf("\n");
-
-        if (aborted_p45) {
-            std::printf("[ref-cal] Phase 4.5 aborted — startq reverted.\n");
-            motor->set_zero_offset(original_startq);
-            goto teardown;
-        }
-        if (advanced) {
-            // Persist the new startq.
-            std::array<float, kNumJoints> new_sq;
-            for (int i = 0; i < kNumJoints; ++i) new_sq[i] = original_startq[i] + dsq[i];
-            apply_startq();
-            if (save_startq_to_config("config.yaml", new_sq)) {
-                std::printf("[ref-cal] startq saved to config.yaml (backup: config.yaml.bak)\n");
-            } else {
-                std::fprintf(stderr, "[ref-cal] FAILED to save startq — kept in session only.\n");
-            }
-            // Update cfg.startq for downstream phases / display.
-            for (int i = 0; i < kNumJoints; ++i) cfg.startq[i] = new_sq[i];
-        }
-    }
-    // keys stays running for Phase 5 below.
-
-    // Phase B: operator loop. Slew live_dq -> target_dq with first-order alpha.
     {
         std::printf("[ref-cal] operator control. (dx, dy) starts at (0, 0).\n");
         std::fflush(stdout);

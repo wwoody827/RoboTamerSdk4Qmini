@@ -57,8 +57,8 @@ float safe_amp(float amp, float mgto_val, float lo, float hi);
 // Builders -----------------------------------------------------------------
 
 // Default protocol: Tests A+B+C, single pose (MGTO). One step trial per joint
-// at the kp=30/kd=1.0 test preset (no kp/kd sweep); pd_calibration_main can
-// override the per-joint gain via --use-config-gains.
+// (no kp/kd sweep). Every trial drives the joint at its per-joint deploy gain
+// from config.yaml (kp[j]/kd[j]), which pd_calibration_main passes in here.
 std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& act_pos_low,
     const std::array<float, kNumJoints>& act_pos_high,

@@ -362,7 +362,7 @@ fast high-freq trials don't trip the velocity watchdog.
 | `--mjcf <path>` | MuJoCo backend MJCF override (sim dry-runs). |
 | `--viewer` | Open GLFW viewer (sim dry-runs). |
 | `--no-imu` | Skip IMU backend; set `imu_*` fields to NaN. |
-| `--tick-hz <Hz>` | Override control rate. Default = `1/control_dt` from `config.yaml`. See §6. |
+| `--tick-hz <Hz>` | Override control rate. Default = `1/control_dt` from `config.yaml` (≈66.67 Hz). Prints a discretization-mismatch warning when overridden; see `PD_CALIBRATION_SPEC.md` §5. |
 | `--output-root <path>` | Output root (default `data/pd_calibration`). |
 | `--label <s>` | Run label suffix (default `initial`). |
 | `--operator <s>` | Operator name for `run_meta.json`. |
@@ -393,20 +393,37 @@ No kp/kd sweep — Test A is one step trial per joint.
 └── joint_09_ankle_pitch_r/…
 ```
 
-Each `.npz` has 12 arrays + 4 scalars; schema in
+Each `.npz` has 13 arrays + 3 scalars (16 keys); schema in
 `PD_CALIBRATION_SPEC.md §7`.
 
 ### Fitting
 
+Three offline scripts under `tools/calibration_fit/`, picked by which
+test you ran and how the robot was held:
+
 ```bash
-python3 tools/calibration_fit/fit_pd.py /tmp/cal_dryrun/<run_id>/ \
-    --mjcf sim_assets/q1_sim.mjcf
-# → /tmp/cal_dryrun/<run_id>/calibration.yaml
+# 1. Quick-look FIRST — did the joint track, and was the base actually
+#    still? Writes per-joint PNGs + a console table; warns if base ω
+#    peaked > 0.3 rad/s (chassis was swinging → fits will be biased).
+python3 tools/calibration_fit/analyze_run.py <run_dir>/
+
+# 2a. STEP data (Test A): second-order fit → calibration.yaml.
+python3 tools/calibration_fit/fit_pd.py <run_dir>/ --mjcf sim_assets/q1_sim.mjcf
+
+# 2b. SINE data (Test B): sine-trace fit with IMU chassis-recoil
+#     compensation — use this when the robot hangs/stands freely (the
+#     base swings and contaminates q̈). Reports encoder-only vs
+#     chassis-compensated per joint; writes plots + calibration.yaml.
+python3 tools/calibration_fit/fit_pd_sine.py <run_dir>/
 ```
 
-`--mjcf` enables the URDF gravity-gradient subtraction (spec §8.1
-Y1 path). Without it, the output has `kp_motor = kp_eff` and an
-explicit comment that gravity isn't separated.
+All three take the run dir as the first arg and accept `--out` for the
+yaml path (default `<run_dir>/calibration.yaml`).
+
+`fit_pd.py --mjcf` enables URDF gravity-gradient subtraction (spec §8.1
+Y1 path); without it the output has `kp_motor = kp_eff` and a comment
+that gravity isn't separated. `fit_pd_sine.py` needs the IMU channels in
+the npz (don't run the trials with `--no-imu` if you'll fit with it).
 
 **Don't auto-edit `qmini_lab` constants.** Per spec §11, the
 operator reviews `calibration.yaml` and hand-updates
@@ -441,10 +458,10 @@ calibration record only — `run_interface` does NOT auto-load it. The
 operator inspects the file and manually copies the new `ref_joint_act`
 into `bin/config.yaml` if they want to adopt the calibrated pose.
 
-> The tool also has a Phase 4.5 that refines `startq` via IMU
-> feedback. This is **legacy** — `startq` is now calibrated by
-> `joint_jog_tool` (see [`1_calibrate_joints.md`](1_calibrate_joints.md)).
-> Phase 4.5 remains as a quick on-the-spot tilt fix only.
+> **CoM-only tool.** This tunes the MGTO standing pose; it does **not**
+> touch `startq`. Calibrate `startq` first with `joint_jog_tool` (see
+> [`1_calibrate_joints.md`](1_calibrate_joints.md)), then come here to
+> make the robot balance.
 
 ### Why you need this
 
@@ -485,51 +502,28 @@ cd ~/code/RoboTamerSdk4Qmini/bin
 ./ref_calibration_tool
 ```
 
-Workflow (≤5 minutes). The tool walks 5+1 phases, every motion-causing
+Workflow (≤5 minutes). The tool walks 4 phases, every motion-causing
 phase gated by an explicit prompt (mirrors `pd_calibration_tool`):
 
-1. **Optional startq zero calibration** (`[Y/n]`). Motors limp; operator
-   hand-poses to the URDF zero; tool averages and offers to write the
-   result back to `config.yaml`. **Skip with `--no-zero-cal`** if
-   you've already calibrated startq via the joint-limit method (§6).
-2. **Pre-motion confirmation** (`y`). Until this `y`, motors are limp.
+1. **Pre-motion confirmation** (`y`). Until this `y`, motors are limp.
    The next phase issues PD with the gains from `config.yaml`.
-3. **Ramp to MGTO** (`--ramp-in-s`, default 2 s). Smooth blend from
+2. **Ramp to MGTO** (`--ramp-in-s`, default 2 s). Smooth blend from
    measured pose to MGTO.
-4. **MGTO confirmation** (`y`). Robot is now holding MGTO via PD.
+3. **MGTO confirmation** (`y`). Robot is now holding MGTO via PD.
    Operator verifies the standing pose looks right (visual + IMU rpy)
    before any further motion.
-5. **Phase 4.5 — IMU-grounded startq refinement.** If IMU pitch/roll
-   are nonzero at commanded MGTO, the operator nudges `startq` for
-   ankle (pitch) and hip_roll (roll) via `w/s/a/d` until IMU is level.
-   Press `n` to save the new `startq` to `config.yaml` and advance.
-   Skip with the existing `--no-zero-cal` flag if startq is already
-   trusted (e.g., after the §6 bootstrap).
-6. **Operator pose-tuning loop (CoM correction)**. Arrow keys adjust
-   `(dx_foot, dy_foot)`; `Enter` writes `ref_pose_calibrated.yaml`
-   (absolute joint values). Skip with Enter immediately if MGTO is
-   already balanced after Phase 4.5.
+4. **Operator pose-tuning loop (CoM correction)**. Arrow keys adjust
+   `(dx_foot, dy_foot)`; the IK keeps the body level and feet flat;
+   `Enter` writes `ref_pose_calibrated.yaml` (absolute joint values).
+   Press `Enter` immediately if MGTO is already balanced.
 
-On real hardware, hold the robot during phase 1 (limp), place it on
-the ground before phase 2, and keep the e-stop in reach throughout.
+`startq` is **not** touched anywhere in this tool — calibrate it first
+with `joint_jog_tool` ([`1_calibrate_joints.md`](1_calibrate_joints.md)).
 
-### Phase 4.5 keys (IMU-grounded startq refinement)
+On real hardware, place the robot on the ground before phase 1, and keep
+the e-stop in reach throughout.
 
-| IMU shows | Press | Effect |
-|---|---|---|
-| pitch > 0 (head up / backward tilt) | `w` | adjusts ankle startq L-R symmetric to bring pitch toward 0 |
-| pitch < 0 (head down / forward tilt) | `s` | opposite |
-| roll > 0 (rolled right) | `d` | hip_roll startq L+R opposite signs |
-| roll < 0 (rolled left) | `a` | opposite |
-| messed up | `r` | reset all Δstartq to 0 |
-| satisfied | `n` | save startq to `config.yaml`, advance to phase 5 |
-| abort | `q` / `Esc` | revert startq, exit |
-
-Each press shifts startq by 0.005 rad (~0.3°). Robot's physical
-position slews to match instantly (PD active). Watch IMU shrink
-toward zero.
-
-### Phase 5 keys (CoM correction)
+### Phase 4 keys (CoM correction)
 
 1. Observe tip direction:
    - Falls forward (head down) → press `↑` (move feet forward to
@@ -551,9 +545,9 @@ toward zero.
 | `↑` / `↓` | Move BOTH feet forward / backward by `--step-mm` |
 | `→` / `←` | Widen / narrow stance by `--step-mm` |
 | `r` | Reset to MGTO (`dx=dy=0`) |
+| `s` | Re-apply slew toward the current target |
 | `Enter` | Accept current pose, write yaml |
 | `q` / `Esc` | Abort without writing |
-| `hjkl` | vi-style fallback (`h`=`←`, `j`=`↓`, `k`=`↑`, `l`=`→`) |
 
 Each keypress echoes its own status line; the live `[live]` row at
 the bottom keeps refreshing with current `(dx, dy)` and IMU rpy.
@@ -572,9 +566,6 @@ press `↓`.
 Safety / workflow:
 ```
 -y, --yes               skip ALL confirmation prompts (sim / scripts only)
---no-zero-cal           skip the startq zero calibration phase
---zero-cal-countdown <s>  hand-position countdown (default 10)
---zero-cal-measure <s>    averaging window (default 5)
 --ramp-in-s <s>         ramp from measured pose to MGTO (default 2)
 ```
 
