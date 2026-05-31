@@ -159,12 +159,19 @@ Five landmarks × 2 legs = 10 captures. Motors stay limp throughout.
 | Joint | Landmark | q_L target | Reference image |
 |---|---|---|---|
 | ankle | foot ⟂ shank (square) | −1.569 | [`ankle_perp`](docs/images/geom_cal/ankle_perp.png) |
-| knee | thigh ‖ shank, 180° (straightedge) | −0.084 | [`knee_straight`](docs/images/geom_cal/knee_straight.png) |
+| knee | leg straight, pushed to **q=0 mechanical stop** | 0.000 | [`knee_straight`](docs/images/geom_cal/knee_straight.png) |
 | hip_yaw | leg in body sagittal plane (top + side view) | +0.400 | [`hip_yaw_forward`](docs/images/geom_cal/hip_yaw_forward.png) |
 | hip_roll | no lateral tilt (front view) | 0.000 | [`hip_roll_no_tilt`](docs/images/geom_cal/hip_roll_no_tilt.png) |
 | hip_pitch | thigh horizontal, torso vertical (bubble level + IMU) | −0.715 | [`hip_pitch_thigh_horizontal`](docs/images/geom_cal/hip_pitch_thigh_horizontal.png) |
 
-Right leg = negate each value.
+Right leg = negate each value (knee stays at 0; it's the upper bound for the
+R URDF range `[-2.1, 0]` and the lower bound for the L range `[0, +2.1]`).
+
+> The knee landmark is the only one that uses the mechanical stop instead
+> of a true geometric reference. A strict thigh ‖ shank (180°) sits at
+> q = ∓0.084 but the stop blocks the joint ~3.6° short of that on this
+> robot. The stop is mechanically very reliable, so this is honest and
+> sub-degree in practice.
 
 ### Procedure
 

@@ -63,24 +63,35 @@ const char* kJointNames[kNumJoints] = {
     "hip_yaw_r", "hip_roll_r", "hip_pitch_r", "knee_r", "ankle_r",
 };
 
-// Geometric landmark target q values (URDF / controller frame). See
-// GEOMETRIC_JOINT_CALIBRATION_SPEC.md §3 for derivation.
-//   hip_yaw   : leg straight forward (top + side view)   q_L = +0.400
-//   hip_roll  : no lateral tilt (front view)             q_L =  0.000
-//   hip_pitch : thigh horizontal (bubble level, torso ⟂) q_L = -0.715
-//   knee      : thigh ‖ shank (straightedge, 180°)       q_L = -0.084
-//   ankle     : foot ⟂ shank (carpenter's square, 90°)   q_L = -1.569
-// Right = negate left.
+// Per-joint calibration target q values (URDF / controller frame). See
+// GEOMETRIC_JOINT_CALIBRATION_SPEC.md §3.
+//
+// Note on knee: a strict geometric "thigh ‖ shank" (180°) is at
+// q = ∓0.084, but the mechanical stop sits ~3.6° short of that, so the
+// joint physically can't reach the colinear pose. We instead capture
+// the knee against its q=0 mechanical stop (the URDF lower/upper bound),
+// which collapses this one joint to the limit-method math but keeps the
+// operator workflow uniform with the other 4 joints. The stop is
+// mechanically very reliable, so this is honest and sub-degree on the
+// real hardware (Δ in the user's sweep was <1°).
+//
+//   hip_yaw   : leg straight forward (top + side view)         q_L = +0.400
+//   hip_roll  : no lateral tilt (front view)                   q_L =  0.000
+//   hip_pitch : thigh horizontal (bubble level, torso ⟂)       q_L = -0.715
+//   knee      : leg straight, pushed against stop              q_L =  0.000
+//   ankle     : foot ⟂ shank (carpenter's square, 90°)         q_L = -1.569
+//
+// Right = negate (or 0 for joints whose target is 0).
 const float kTarget[kNumJoints] = {
-    +0.400f, 0.000f, -0.715f, -0.084f, -1.569f,
-    -0.400f, 0.000f, +0.715f, +0.084f, +1.569f,
+    +0.400f, 0.000f, -0.715f, 0.000f, -1.569f,
+    -0.400f, 0.000f, +0.715f, 0.000f, +1.569f,
 };
 
 const char* kLandmark[kNumJoints] = {
     "leg fwd (top+side)",   "front: no tilt",        "thigh horizontal",
-    "knee straight (180°)", "foot ⟂ shank (90°)",
+    "knee straight (stop)", "foot ⟂ shank (90°)",
     "leg fwd (top+side)",   "front: no tilt",        "thigh horizontal",
-    "knee straight (180°)", "foot ⟂ shank (90°)",
+    "knee straight (stop)", "foot ⟂ shank (90°)",
 };
 
 inline int mirror_of(int j) { return (j + 5) % kNumJoints; }

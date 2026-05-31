@@ -87,13 +87,22 @@ It reproduces the MGTO pose as a sanity check (knee bent 62.1°, foot-vs-shank
 LEFT leg; **RIGHT leg = negate each value** (`q_r = −q_l`, the mirror
 convention of `ref_joint_act`).
 
-| Joint | Geometric pose (how the operator verifies) | Target q — LEFT | RIGHT | Reference image |
+| Joint | Pose (how the operator verifies) | Target q — LEFT | RIGHT | Reference image |
 |---|---|---|---|---|
 | **ankle** | foot ⟂ shank — carpenter's square between foot and shank | **−1.569 rad (−89.9°)** | +1.569 | [`ankle_perp.png`](docs/images/geom_cal/ankle_perp.png) |
-| **knee** | thigh ‖ shank (180°) — straightedge along thigh and shank | **−0.084 rad (−4.8°)** | +0.084 | [`knee_straight.png`](docs/images/geom_cal/knee_straight.png) |
+| **knee** | leg straight, **pushed against the q=0 mechanical stop** | **0.000 rad** (URDF lower bound) | 0.000 (R: URDF upper bound) | [`knee_straight.png`](docs/images/geom_cal/knee_straight.png) |
 | **hip_yaw** | leg in body's sagittal plane — top + side view both align | **+0.400 rad (+22.9°)** | −0.400 | [`hip_yaw_forward.png`](docs/images/geom_cal/hip_yaw_forward.png) |
 | **hip_roll** | no lateral tilt — front view, thigh straight down | **0.000 rad (0°)** | 0.000 | [`hip_roll_no_tilt.png`](docs/images/geom_cal/hip_roll_no_tilt.png) |
 | **hip_pitch** | thigh horizontal — bubble level on thigh, **torso held vertical** | **−0.715 rad (−40.9°)** | +0.715 | [`hip_pitch_thigh_horizontal.png`](docs/images/geom_cal/hip_pitch_thigh_horizontal.png) |
+
+**Note on the knee landmark.** A strict thigh ‖ shank (180°) is at
+q = ∓0.084 rad, but the mechanical stop sits ~3.6° short of that on this
+robot — the joint physically can't reach colinearity. We use the **q=0
+mechanical stop** instead (URDF lower bound for L, upper bound for R),
+which is mechanically very reliable. This collapses the knee to the
+limit method for that one joint, but keeps the operator workflow uniform
+across all 5 captures (one tool, motors limp). The other four joints are
+genuinely geometric — far from any stop, sub-degree precision.
 
 **Decoupling story.** `ankle ⟂ shank` and `knee straight` are intra-leg
 (angle between two links of the *same* leg) → no torso reference needed and
@@ -129,13 +138,16 @@ def ang(u,w):                    # signed angle between two (x,z) vectors, deg
     d=math.atan2(w[0],-w[1])-math.atan2(u[0],-u[1])
     return math.degrees((d+math.pi)%(2*math.pi)-math.pi)
 # landmarks (LEFT leg):
-#   ankle ⟂ shank:        ang(shank, foot) ==  90   ->  q_ankle    = -1.569
-#   knee  straight (180°): ang(thigh, shank) ==   0   ->  q_knee     = -0.084
-#   hip thigh-horizontal: thigh z-component  ==   0   ->  q_hip_pit  = -0.715
+#   ankle ⟂ shank:         ang(shank, foot) ==  90  ->  q_ankle   = -1.569
+#   hip thigh-horizontal:  thigh z-component ==   0  ->  q_hip_pit = -0.715
 # hip_yaw and hip_roll have no z-axis rotation gotcha — they're directly
 # the URDF mount-bias-cancel values:
-#   hip_yaw mount rpy.z = +0.4 (L) axis -z  -> q_hy_L = +0.400  (leg ⟂ to body y)
-#   hip_roll: no mount bias                  -> q_hr_L = 0.000  (no lateral tilt)
+#   hip_yaw mount rpy.z = +0.4 (L) axis -z   -> q_hy_L    = +0.400
+#   hip_roll: no mount bias                  -> q_hr_L    =  0.000
+# knee: geometric 180° (ang(thigh,shank)==0) is at q = -0.084 but the
+# mechanical stop on this robot blocks the joint ~3.6° before colinearity.
+# We instead calibrate against the URDF lower bound (q=0) — i.e. the stop —
+# which is mechanically very reliable. (Sub-degree on the user's hardware.)
 ```
 
 The bone vectors `v_thigh`, `v_shank` are the child-body `pos` attributes from

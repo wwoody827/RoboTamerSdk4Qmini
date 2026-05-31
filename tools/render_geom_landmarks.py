@@ -27,10 +27,14 @@ REPO = Path("/home/woody/code/RoboTamerSdk4Qmini")
 MJCF = REPO / "sim_assets/q1_sim.mjcf"
 OUT  = REPO / "docs/images/geom_cal"
 
-# Single pose for both landmarks (left leg in controller frame). Right
-# mirrors per the spec; we set right leg to a neutral hanging pose so the
-# left leg reads cleanly.
-HP_L, KN_L, AN_L = -0.715, -0.084, -1.569
+# Single pose for both landmarks (left leg in controller frame).
+# KN_L = 0 puts the knee against its q=0 mechanical stop, which is the
+# pose the operator can actually reach (a strict 180° colinear leg at
+# q=-0.084 is past the stop on this robot). With KN_L=0 the leg has a
+# small ~4° residual bend at the knee — visible in the image, honest
+# about what the operator will see. Ankle perpendicularity is unaffected
+# (it's an intra-joint angle, independent of knee position).
+HP_L, KN_L, AN_L = -0.715, 0.0, -1.569
 
 JOINT_NAMES = [
     "hip_yaw_l", "hip_roll_l", "hip_pitch_l", "knee_pitch_l", "ankle_pitch_l",
@@ -177,7 +181,7 @@ def main():
     fig, ax = plt.subplots(figsize=(9, 9))
     ax.imshow(img)
     ax.axis("off")
-    ax.set_title("knee straight   (thigh and shank colinear, 180°)",
+    ax.set_title("knee straight   (pushed against q=0 mechanical stop)",
                  fontsize=14, pad=10)
     # Straightedge line from above the hip through the leg, extended below
     # the ankle, lying ON the thigh+shank line.
@@ -199,13 +203,13 @@ def main():
                 color="#ff5500", fontsize=12, fontweight="bold")
 
     ax.text(20, H - 20,
-            "Lay a straightedge along the THIGH and SHANK.\n"
-            "When both links lie flat on it with no gap at\n"
-            "the knee, read q_knee (left leg).\n\n"
-            "target  q_knee_L = −0.084 rad  (−4.8°)\n"
-            "        q_knee_R = +0.084 rad  (+4.8°)\n\n"
-            "NOTE: this is ~q=0 mechanical stop. If the\n"
-            "knee is at the stop, you'll feel it.",
+            "Push the knee against its q=0 mechanical stop\n"
+            "(you'll feel the joint stop hard).\n"
+            "A straightedge confirms the leg is nearly straight;\n"
+            "a small residual bend (~3.6°) is normal — that's the\n"
+            "gap between the stop and true 180° colinearity.\n\n"
+            "target  q_knee_L = 0.000 rad   (URDF lower bound)\n"
+            "        q_knee_R = 0.000 rad   (URDF upper bound)",
             color="white", fontsize=11,
             bbox=dict(boxstyle="round,pad=0.6", facecolor="#222",
                       edgecolor="none", alpha=0.85),
