@@ -180,13 +180,18 @@ cd ~/code/RoboTamerSdk4Qmini/bin && ./joint_geom_cal_tool
 ```
 
 The tool ships zero kp/kd/tau every tick; the robot does not move on its
-own. Workflow:
+own. Each capture pins **one** joint from its own reading, so you pose a
+single joint at a time (you only have two hands). Left and right are
+separate joints — **10 captures total**. Workflow:
 
-1. With symmetric mode on (default), pose **both legs** at one
-   landmark simultaneously (e.g. carpenter's square on both ankles).
-2. `0`–`9` (or `[` / `]`) select the joint, **SPACE** captures both legs.
-3. Repeat for the other four landmarks. The tool's `✓` column tracks
-   which joints have been captured this session.
+1. Pose **one** joint to its landmark (e.g. carpenter's square on the
+   left ankle).
+2. `0`–`9` (or `[` / `]`) select that joint (left leg 0–4, right 5–9),
+   then **SPACE** captures it. The right-leg targets (negated) are
+   built in — just select the right joint number.
+3. Repeat for all 10 joints. The `✓` column tracks which are done; the
+   `Δ=q-tgt` column should read ≈ 0 right after a good capture (re-pose
+   and SPACE again if not).
 4. `w` writes the new `startq` to `config.yaml` (+ `.bak`). `q` / `Esc`
    aborts and reverts.
 

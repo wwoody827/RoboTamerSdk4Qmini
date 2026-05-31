@@ -192,12 +192,13 @@ Implementation: `source/user/joint_geom_cal_main.cpp`.
 - Live table refreshes at 5 Hz with one row per joint: target (from §3.1),
   current `q = q_raw − startq`, delta vs target, and the cumulative session
   `Δstartq`. Highlight the selected joint (`>` cursor + `✓` on captured).
-- `0`-`9` (or `[`/`]`) select a joint. **SPACE** captures:
-  `dsq[j] := q_read[j] − target[j]`, applied live via
-  `motor->set_zero_offset(startq0 + dsq)`. With **symmetric mode**
-  (default on), the same SPACE also captures the mirror partner
-  `(j+5)%10` against its own current `q_raw` → both legs captured in one
-  shot if the operator posed them symmetrically. Toggle with `m`.
+- `0`-`9` (or `[`/`]`) select a joint. **SPACE** captures **only that
+  joint**: `dsq[j] += q_read[j] − target[j]` (accumulates, so re-capturing
+  a joint after re-posing stays correct), applied live via
+  `motor->set_zero_offset(startq0 + dsq)`. One joint per capture — the
+  operator poses a single joint at a time (two hands). Left and right are
+  separate joints → **10 captures**; the right-leg targets are the negated
+  left values.
 - Status line shows IMU `rpy` — used to confirm the torso is held vertical
   for the hip_pitch (thigh-horizontal) landmark.
 - `w` writes the new `startq` to `config.yaml` (with `.bak` backup) and
@@ -205,8 +206,7 @@ Implementation: `source/user/joint_geom_cal_main.cpp`.
   `q`/`Esc` aborts — reverts `set_zero_offset` to the original baseline
   and exits without writing.
 
-**CLI**: `--independent` (disable symmetric), `--mjcf`/`--no-viewer`
-(sim dry-run), `--iface`, `--tick-hz`, `-h`.
+**CLI**: `--mjcf`/`--no-viewer` (sim dry-run), `--iface`, `--tick-hz`, `-h`.
 
 **Safety**: limp only. Zero torque, zero kp/kd shipped every tick. No
 watchdog needed.
@@ -241,10 +241,9 @@ calibrates one joint at a time.
 
 1. ✅ Tool runs with motors limp and shows, per joint, live `q`, the selected
    landmark target (§3.1), and the delta.
-2. ✅ Capturing a landmark sets `dsq[j] = q_raw[j] − target[j]`, applies it
-   live via `set_zero_offset`; `w` writes `config.yaml` (+ `.bak`).
-   Symmetric capture sets the mirror joint to its own captured value
-   against the negated target.
+2. ✅ Capturing a landmark accumulates `dsq[j] += q_raw[j] − target[j]`
+   (correct on re-capture), applies it live via `set_zero_offset`; `w`
+   writes `config.yaml` (+ `.bak`). One joint captured per SPACE.
 3. After capturing ankle and knee at their landmarks and re-reading on
    real hardware, `q` at the posed landmark equals the target to within
    the operator's measurement tolerance (≈ ±2°). *Sim test passes; HW

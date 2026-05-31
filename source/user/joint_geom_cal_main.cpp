@@ -94,8 +94,6 @@ const char* kLandmark[kNumJoints] = {
     "knee straight (stop)", "foot ⟂ shank (90°)",
 };
 
-inline int mirror_of(int j) { return (j + 5) % kNumJoints; }
-
 std::atomic<bool> g_quit{false};
 std::atomic<bool> g_aborted{false};
 void handle_sigint(int) { g_quit = true; g_aborted = true; }
@@ -116,18 +114,19 @@ void print_usage(const char* prog) {
         "  docs/images/geom_cal/hip_roll_no_tilt.png\n"
         "  docs/images/geom_cal/hip_pitch_thigh_horizontal.png\n"
         "\n"
+        "Each capture pins ONE joint from its own reading, so pose a single\n"
+        "joint at a time. Left and right are separate joints (e.g. ankle_l = 4,\n"
+        "ankle_r = 9) — calibrate all 10 individually.\n"
+        "\n"
         "Keys (raw terminal):\n"
         "  0-9      select joint (cursor moves)\n"
         "  [ / ]    select prev / next joint\n"
-        "  SPACE    CAPTURE: startq[j] += (q_read - target). Symmetric mode\n"
-        "           also captures the mirror partner with target negated.\n"
-        "  m        toggle symmetric mode (default ON)\n"
+        "  SPACE    CAPTURE selected joint: startq[j] += (q_read - target)\n"
         "  r        revert all session changes (back to original startq)\n"
         "  w        WRITE new startq to config.yaml (+ .bak)\n"
         "  q, Esc   ABORT: revert and exit without saving\n"
         "\n"
         "Options:\n"
-        "  --independent     start in independent mode (no L/R mirror capture)\n"
         "  --mjcf <path>     mujoco backend MJCF (sim dry-run)\n"
         "  --no-viewer       skip GLFW viewer (mujoco only)\n"
         "  --iface <name>    hardware net iface\n"
@@ -137,10 +136,9 @@ void print_usage(const char* prog) {
 }
 
 // ---------------------------------------------------------------------------
-// Raw stdin reader. Keys: 0-9, [, ], SPACE, m, r, w, q, Esc.
+// Raw stdin reader. Keys: 0-9, [, ], SPACE, r, w, q, Esc.
 // ---------------------------------------------------------------------------
-enum class Cmd { None, Sel0to9, Prev, Next, Capture, ToggleSym, Revert,
-                 Save, Abort };
+enum class Cmd { None, Sel0to9, Prev, Next, Capture, Revert, Save, Abort };
 
 class KeyboardCmd {
 public:
@@ -190,7 +188,6 @@ private:
                     else if (c == '[')          queue_.push_back({Cmd::Prev, 0});
                     else if (c == ']')          queue_.push_back({Cmd::Next, 0});
                     else if (c == ' ')          queue_.push_back({Cmd::Capture, 0});
-                    else if (c == 'm' || c == 'M') queue_.push_back({Cmd::ToggleSym, 0});
                     else if (c == 'r' || c == 'R') queue_.push_back({Cmd::Revert, 0});
                     else if (c == 'w' || c == 'W') queue_.push_back({Cmd::Save, 0});
                     else if (c == 'q' || c == 'Q' || c == 0x1b)
@@ -256,7 +253,7 @@ bool save_startq_to_config(const std::string& path,
 int main(int argc, char** argv) {
     std::string mjcf_path, iface = "eth0";
     double tick_hz = 0.0;
-    bool want_viewer = true, symmetric = true;
+    bool want_viewer = true;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -272,7 +269,6 @@ int main(int argc, char** argv) {
         else if (a == "--no-viewer") want_viewer = false;
         else if (a == "--iface") iface = next("--iface");
         else if (a == "--tick-hz") tick_hz = std::atof(next("--tick-hz"));
-        else if (a == "--independent") symmetric = false;
         else {
             std::fprintf(stderr, "unknown arg: %s\n", a.c_str());
             return 2;
@@ -321,11 +317,11 @@ int main(int argc, char** argv) {
         "  GEOMETRIC LANDMARK CALIBRATION  (motors LIMP — hand-pose only)\n"
         "\n"
         "  Reference images: docs/images/geom_cal/*.png\n"
-        "  Pose each joint to its landmark, then press SPACE to capture.\n"
-        "  Symmetric mode (default ON): one SPACE captures BOTH legs.\n"
+        "  Pose ONE joint to its landmark, select it, then SPACE to capture.\n"
+        "  All 10 joints calibrated individually (left and right separately).\n"
         "\n"
         "  Keys:  0-9 select   [/] prev/next   SPACE capture\n"
-        "         m sym   r revert   w save   q/Esc abort\n"
+        "         r revert   w save   q/Esc abort\n"
         "================================================================\n");
     std::fflush(stdout);
 
@@ -360,13 +356,9 @@ int main(int argc, char** argv) {
         // existing delta (`+=`, not `=`) so that re-capturing a joint whose
         // dsq is already non-zero this session stays correct:
         //   new startq = (startq0 + dsq) + (st.q - target) = raw - target.
+        // Captures only the selected joint — pose one joint at a time.
         dsq[j] += st.q[j] - kTarget[j];
         captured[j] = true;
-        if (symmetric) {
-            int m = mirror_of(j);
-            dsq[m] += st.q[m] - kTarget[m];
-            captured[m] = true;
-        }
         apply_startq();
     };
 
@@ -393,7 +385,6 @@ int main(int argc, char** argv) {
             else if (c == Cmd::Prev)  sel = (sel + kNumJoints - 1) % kNumJoints;
             else if (c == Cmd::Next)  sel = (sel + 1) % kNumJoints;
             else if (c == Cmd::Capture) capture(sel);
-            else if (c == Cmd::ToggleSym) symmetric = !symmetric;
             else if (c == Cmd::Revert) {
                 for (int i = 0; i < kNumJoints; ++i) {
                     dsq[i] = 0; captured[i] = false;
@@ -426,9 +417,8 @@ int main(int argc, char** argv) {
         if (now - t_last_paint > std::chrono::milliseconds(200)) {
             t_last_paint = now;
             auto base = imu ? imu->read() : qmini::hal::BaseStateFrame{};
-            std::printf("\r\x1b[K  sym=%s  IMU rpy=(%+5.3f, %+5.3f, %+5.3f)  "
+            std::printf("\r\x1b[K  IMU rpy=(%+5.3f, %+5.3f, %+5.3f)  "
                         "sel=%s   captured=%d/10%s\n",
-                        symmetric ? "ON " : "OFF",
                         base.rpy[0], base.rpy[1], base.rpy[2],
                         kJointNames[sel],
                         [&]{ int n=0; for (bool b : captured) if (b) ++n; return n; }(),
