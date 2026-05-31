@@ -414,145 +414,21 @@ operator reviews `calibration.yaml` and hand-updates
 
 ---
 
-## 6. Startq calibration (joint-limit method)
+## 6. Joint calibration (`startq`)
 
-Calibrates `config.yaml::startq` so the SDK's `q` is in URDF
-coordinates. Two binaries + one Python script, no `run_interface`
-involved at any step.
+**Moved to its own runbook: [`1_calibrate_joints.md`](1_calibrate_joints.md).**
 
-### Why this exists
+It covers the single-turn-encoder background, the
+bootstrap → jog-refine → canonical-lock workflow (the current method,
+which calibrates hip_yaw/hip_roll with `joint_jog_tool` rather than the
+old `ref_calibration_tool` Phase 4.5 path), the 30-second daily re-cal,
+what's written where, and troubleshooting (encoder window slips,
+ModemManager FTDI grabs, the working-directory gotcha). Start there for
+anything touching `startq` or the mechanical limits.
 
-The Unitree GO-M8010-6 motor has a 15-bit **single-turn** absolute
-encoder — multi-turn position does NOT persist across power cycles.
-At every boot, the motor reports raw position relative to whatever
-single-turn window the encoder happened to be in. To map raw → URDF
-joint angle, the SDK applies `startq[i]`:
-
-```
-q_sdk[i] = raw[i] − startq[i]
-```
-
-`startq` is calibrated such that `q_sdk` matches URDF coordinates. The
-calibration is anchored by the mechanical hard stops on each joint
-(motors physically can't pass these positions).
-
-Per-joint reference choice:
-- **hip_pitch / knee / ankle (6 joints):** URDF range is entirely one
-  side of 0. The `q=0` end IS a mechanical stop (operator's
-  `joint_range_tool` data showed Δ < 1° vs URDF). Use single-end.
-- **hip_yaw / hip_roll (4 joints):** URDF range spans both signs of 0.
-  `q=0` is mid-range with no mechanical reference. Use the **midpoint**
-  of both measured stops → URDF midpoint. Symmetric errors at the two
-  stops cancel; only the asymmetric component remains. Bootstrap
-  refines this further (see §6.3).
-
-### 6.1 Daily calibration (30 s)
-
-```bash
-cd ~/code/RoboTamerSdk4Qmini
-
-# 1. Power on robot in any pose. Motors will go limp as soon as the
-#    tool starts. Move each joint by hand to both mechanical stops.
-./bin/joint_range_tool --out /tmp/ranges.yaml
-# Sweep each joint slowly to both limits, watch the table latch
-# onto the extremes. Press Enter to save + exit.
-
-# 2. Compute startq + write config.yaml (with .bak)
-python3 tools/apply_limit_calibration.py /tmp/ranges.yaml --apply
-```
-
-Done. Reboot the robot in the same fold pose you usually use; the new
-`startq` makes `q` match URDF coords for the rest of the session.
-
-### 6.2 Bootstrap workflow (one-time, after hardware bring-up or
-change)
-
-URDF range values are conservative software limits; they don't exactly
-match the physical hard stops. Bootstrap measures the **real** stop
-positions in URDF coords once, locks them in as the calibration
-reference, and from then on you use those for sub-degree precision.
-
-```bash
-cd ~/code/RoboTamerSdk4Qmini
-
-# Step 1: initial calibration (uses URDF range fallback)
-./bin/joint_range_tool --out /tmp/bootstrap1.yaml
-python3 tools/apply_limit_calibration.py /tmp/bootstrap1.yaml --apply
-
-# Step 2: IMU-grounded refinement of hip_yaw / hip_roll
-#         (these joints have no mechanical reference at q=0)
-./bin/ref_calibration_tool --no-zero-cal
-# Phase 2 (y): pre-motion confirm
-# Phase 4 (y): MGTO confirm
-# Phase 4.5:   w/s/a/d to nudge startq until IMU pitch/roll < 0.02 rad
-# n:           save startq to config.yaml, advance to Phase 5
-# Phase 5:     press Enter to exit (no dx/dy adjustment needed yet)
-
-# Step 3: at this point startq is accurate for all 10 joints.
-#         Re-measure the mechanical stops — they're now in real URDF
-#         coords. Save as canonical for future calibrations.
-./bin/joint_range_tool --out /tmp/canonical.yaml
-python3 tools/apply_limit_calibration.py /tmp/canonical.yaml \
-    --record-canonical
-# Writes bin/canonical_joint_limits.yaml
-```
-
-After bootstrap, every subsequent `apply_limit_calibration.py` run
-auto-loads `bin/canonical_joint_limits.yaml` and uses those measured
-URDF angles as the target — pitched joints AND yaw/roll joints both
-hit < 1° calibration precision.
-
-### 6.3 What gets written where
-
-| File | Written by | Read by | Survives reboot? |
-|---|---|---|---|
-| `config.yaml::startq` | `apply_limit_calibration.py --apply` and `ref_calibration_tool` Phase 4.5 | every SDK boot | yes |
-| `bin/canonical_joint_limits.yaml` | `apply_limit_calibration.py --record-canonical` | `apply_limit_calibration.py` on subsequent runs | yes |
-| `bin/ref_pose_calibrated.yaml` | `ref_calibration_tool` Phase 5 Enter | nothing auto-reads it (manual paste into `config.yaml`) | yes |
-| `bin/dynamic_zero.yaml` | `run_interface` mode `1`+`z` | `run_interface` boot, `ref_calibration_tool` boot | yes |
-
-`dynamic_zero.yaml` is **not** used by this calibration workflow. If
-you have a stale one from previous `run_interface` sessions, delete
-it (`rm bin/dynamic_zero.yaml`) so it doesn't double-apply on
-`ref_calibration_tool` boot.
-
-### 6.4 Verifying the calibration
-
-After Step 1 of §6.1 (or after a full bootstrap), check that the body
-sits level when commanded to MGTO:
-
-```bash
-./bin/joint_range_tool --out /tmp/check.yaml
-# Just check the live IMU rpy on the bottom of the table at MGTO.
-# If you want a stronger test:
-./bin/ref_calibration_tool --no-zero-cal
-# Stop at Phase 4 (MGTO confirmation) — look at the IMU rpy in the
-# banner. Pitch and roll should both be < 0.02 rad. If not, run
-# Phase 4.5 to fix.
-```
-
-For a full sim-2-real audit, see §6.5 "what can still go wrong"
-(below).
-
-### 6.5 What can still go wrong
-
-Even with `startq` perfectly calibrated, RL behaviour on hardware can
-diverge from sim. The usual suspects:
-
-1. **Observation/action dim mismatch.** Caught at boot by
-   `test_obs_builder`.
-2. **PD gain units.** `config.yaml::kp` / `kd` are in joint space; the
-   hardware backend divides by gear ratio² before shipping to the
-   motor firmware (see `motor_unitree.cpp`).
-3. **CoM mismatch.** URDF-modelled mass distribution differs from real
-   hardware (heavier head, battery moved). Body may tilt at MGTO even
-   with correct `startq`. Fix with `ref_calibration_tool` Phase 5 (CoM
-   correction via foot translation). See §7.
-4. **Encoder boot pose drift.** If you boot the robot in a wildly
-   different fold pose (>0.5 rad off any joint), the motor firmware
-   may pick a different single-turn window → `startq` is off by ~1
-   full motor revolution (~0.99 rad joint-side). Keep the fold pose
-   reproducible.
+`ref_calibration_tool` (§7 below) is now only for **CoM correction**
+(foot translation so the robot balances at MGTO) — a separate concern
+from `startq`.
 
 ---
 
@@ -566,8 +442,9 @@ operator inspects the file and manually copies the new `ref_joint_act`
 into `bin/config.yaml` if they want to adopt the calibrated pose.
 
 > The tool also has a Phase 4.5 that refines `startq` via IMU
-> feedback — used during the bootstrap calibration in §6.2 and any
-> time the IMU shows body tilt at commanded MGTO.
+> feedback. This is **legacy** — `startq` is now calibrated by
+> `joint_jog_tool` (see [`1_calibrate_joints.md`](1_calibrate_joints.md)).
+> Phase 4.5 remains as a quick on-the-spot tilt fix only.
 
 ### Why you need this
 

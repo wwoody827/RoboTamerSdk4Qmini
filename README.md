@@ -22,6 +22,7 @@ honest.
 | `ARCHITECTURE.md` | Layered design, per-tick control flow, where the HAL boundary lives, how the policy plugs in |
 | `BUILDING.md` | The three CMake presets and what each needs |
 | `USAGE.md` | How to run `run_interface` and `pd_calibration_tool` day-to-day |
+| `1_calibrate_joints.md` | Joint (`startq`) calibration runbook: bootstrap → jog-refine → canonical lock |
 | `PD_CALIBRATION_SPEC.md` | Spec for the per-joint PD identification protocol |
 | `PYTHON_REMOVAL.md` | Why the runtime is pure C++ (and the protocol references for the hardware backends) |
 | `MOTOR_PORT_MAP.md` | FTDI port → motor ID table (per-robot wiring) |

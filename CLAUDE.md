@@ -138,5 +138,6 @@ cd tests/fixtures
 2. `ARCHITECTURE.md` — the HAL line, control flow, observation contract.
 3. `BUILDING.md` — preset → deps mapping.
 4. `USAGE.md` — every CLI flag and what it does.
-5. `PD_CALIBRATION_SPEC.md` — only if you're touching the calibration tool or the fitter.
-6. `PYTHON_REMOVAL.md` — only if you're touching the hardware-backend protocols (jsX, VSISLab IMU framing).
+5. `1_calibrate_joints.md` — joint (`startq`) calibration: encoder windows, bootstrap → jog-refine → canonical lock. Read before touching `startq`, `joint_range_tool`, or `joint_jog_tool`.
+6. `PD_CALIBRATION_SPEC.md` — only if you're touching the PD calibration tool or the fitter.
+7. `PYTHON_REMOVAL.md` — only if you're touching the hardware-backend protocols (jsX, VSISLab IMU framing).
