@@ -1,0 +1,16 @@
+# Calibrated per-joint mechanical stop positions in URDF coordinates.
+# Captured after bootstrap calibration (URDF zero + IMU refinement).
+# Used by apply_limit_calibration.py as the target column instead
+# of the conservative URDF range values.
+# bootstrap_date: 2026-05-31T10:28:08
+canonical_limits:
+  hip_yaw_l   : { min: +0.0000, max: +0.8931 }
+  hip_roll_l  : { min: -0.3144, max: +0.6489 }
+  hip_pitch_l : { min: -2.1269, max: +0.0000 }
+  knee_l      : { min: +0.0000, max: +2.2006 }
+  ankle_l     : { min: -2.6962, max: +0.0010 }
+  hip_yaw_r   : { min: -0.8895, max: +0.0000 }
+  hip_roll_r  : { min: -0.6456, max: +0.3417 }
+  hip_pitch_r : { min: -0.0014, max: +2.1216 }
+  knee_r      : { min: -2.1934, max: +0.0137 }
+  ankle_r     : { min: +0.0000, max: +2.6901 }

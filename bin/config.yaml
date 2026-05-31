@@ -3,8 +3,7 @@
 #motor zero offsets (applied as: q = raw/ratio - startq[i])
 #             idx:  0      1      2     3     4      5      6      7     8     9
 #             joint: HYL   HRL    HPL   KL    AL     HYR    HRR    HPR   KR    AR
-startq: [0.870754, 0.244164, 0.166978, 0.547387, 0.879442, 0.483121, 0.044160, 0.675838, 0.068746, 0.241939]
-
+startq: [0.808897, 0.208013, 0.175100, 0.519700, 0.896300, 0.592354, 0.058267, 0.666600, 0.083500, 0.232900]
 #obs and act spaces
 num_actions: 12
 num_observations: 44
