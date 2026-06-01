@@ -1,0 +1,5 @@
+[calib] run_id=2026-05-31_18-18-42_right_AD
+[calib] sdk_commit=effab83805a6760fa45d2eff364dad8506aca592
+[calib] tests=A,D tick_hz=66.6667 deploy_hz=66.6667 tick_hz_overridden=no quick=no plan_size=10
+[calib] safe_dq_max=8 rad/s ramp_in_s=3
+[calib] elapsed_s=95.2962 ok=10 abort=0
