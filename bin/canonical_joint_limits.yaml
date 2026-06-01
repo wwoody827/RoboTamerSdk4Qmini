@@ -2,15 +2,15 @@
 # Captured after bootstrap calibration (URDF zero + IMU refinement).
 # Used by apply_limit_calibration.py as the target column instead
 # of the conservative URDF range values.
-# bootstrap_date: 2026-05-31T16:32:16
+# bootstrap_date: 2026-05-31T22:39:48
 canonical_limits:
-  hip_yaw_l   : { min: +0.0000, max: +0.8643 }
-  hip_roll_l  : { min: -0.2763, max: +0.7133 }
-  hip_pitch_l : { min: -2.1044, max: +0.0237 }
-  knee_l      : { min: -0.0134, max: +2.1756 }
-  ankle_l     : { min: -2.8456, max: +0.0000 }
-  hip_yaw_r   : { min: -0.8528, max: +0.0000 }
-  hip_roll_r  : { min: -0.6719, max: +0.2943 }
-  hip_pitch_r : { min: +0.0000, max: +2.1338 }
-  knee_r      : { min: -2.1795, max: +0.0122 }
-  ankle_r     : { min: +0.0000, max: +2.8746 }
+  hip_yaw_l   : { min: +0.0000, max: +0.8804 }
+  hip_roll_l  : { min: -0.2861, max: +0.6950 }
+  hip_pitch_l : { min: -2.1137, max: +0.0201 }
+  knee_l      : { min: -0.0407, max: +2.1774 }
+  ankle_l     : { min: -2.8484, max: +0.0000 }
+  hip_yaw_r   : { min: -0.8496, max: +0.0000 }
+  hip_roll_r  : { min: -0.7010, max: +0.2677 }
+  hip_pitch_r : { min: +0.0000, max: +2.1318 }
+  knee_r      : { min: -2.1784, max: +0.0175 }
+  ankle_r     : { min: +0.0000, max: +2.8524 }
