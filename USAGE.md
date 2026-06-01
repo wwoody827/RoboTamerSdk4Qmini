@@ -235,29 +235,26 @@ Refuses to start without the harness-acknowledgement flag.
 A hardware run steps through these phases, each interruptible with
 Ctrl-C (soft stop) — keep the physical e-stop in reach as the hard stop:
 
-1. **startq zero calibration** (prompt, default yes). Motors go limp; a
-   10 s countdown lets you hand-pose the robot to the zero pose, then a
-   5 s window averages the measured positions. Confirm to **apply +
-   save** the new `startq` to `config.yaml` (picked up by future runs
-   and `run_interface`). Skip with `--no-zero-cal`.
-2. **`Proceed?`** confirmation before any motion.
-3. **Ramp to stand (MGTO)** — smooth ramp from the measured pose to the
+1. **`Proceed?`** confirmation before any motion.
+2. **Ramp to stand (MGTO)** — smooth ramp from the measured pose to the
    stand pose (no snap), then it holds MGTO.
-4. **MGTO confirmation** — while holding the stand pose, verify it looks
+3. **MGTO confirmation** — while holding the stand pose, verify it looks
    correct (startq right, no joint off) before perturbations start.
-5. **Trials** — the step/sine/chirp plan, with the velocity watchdog.
-6. **Fold** — ramps `kp`/`kd` down to limp so the robot relaxes
+4. **Trials** — the step/sine/chirp plan, with the velocity watchdog.
+5. **Fold** — ramps `kp`/`kd` down to limp so the robot relaxes
    gracefully instead of being left stiff. Skip with `--no-fold`.
 
-`-y`/`--yes` bypasses the prompts and skips zero-cal (for sim / scripted
-runs). Confirm the motor bus is live first with `./motor_status`.
+`startq` is **not** calibrated here — do that first with
+`joint_geom_cal_tool` (see
+[`1_calibrate_joints.md`](1_calibrate_joints.md)); this tool only reads
+it. `-y`/`--yes` bypasses the prompts (for sim / scripted runs). Confirm
+the motor bus is live first with `./motor_status`.
 
 ### Operator-friendly workflow (you're holding the robot)
 
 Every joint is driven at **its per-joint kp/kd from `config.yaml`** (the
 deploy gains) — there is no kp/kd sweep. To keep each hold short, do one
-frequency at a time. `startq` only needs calibrating once (it's saved),
-so add `--no-zero-cal` after the first run.
+frequency at a time.
 
 ```bash
 cd ~/code/RoboTamerSdk4Qmini/bin     # config.yaml is here
@@ -271,14 +268,14 @@ cd ~/code/RoboTamerSdk4Qmini/bin     # config.yaml is here
 
 # Test B — ONE frequency per run (each ~5/f + 1 s). Repeat per freq.
 # Use --safe-dq-max 8 for freqs >= 4 Hz (fast joints trip the default 4):
-./pd_calibration_tool --i-have-checked-the-harness --no-zero-cal \
+./pd_calibration_tool --i-have-checked-the-harness \
     --joints 3 --tests B --sine-freqs 1.0
-./pd_calibration_tool --i-have-checked-the-harness --no-zero-cal \
+./pd_calibration_tool --i-have-checked-the-harness \
     --joints 3 --tests B --sine-freqs 8.0 --safe-dq-max 8
 ```
 
-All 10 joints, one frequency, with zero-cal in front (each joint ~3.5 s
-at 2 Hz, ~1.5 min total — one continuous hold):
+All 10 joints, one frequency (each joint ~3.5 s at 2 Hz, ~1.5 min total —
+one continuous hold):
 
 ```bash
 ./pd_calibration_tool --i-have-checked-the-harness --tests B --sine-freqs 2.0
@@ -331,8 +328,8 @@ cd ~/code/RoboTamerSdk4Qmini/bin   # config.yaml is here
 ```
 
 All 10 joints, full protocol in one session (~25 min of trials). Note
-this is **not** unattended — you hand-pose for zero-cal and confirm the
-`Proceed?`/MGTO prompts, then it runs the full A+B+C sweep:
+this is **not** unattended — you confirm the `Proceed?`/MGTO prompts,
+then it runs the full A+B+C sweep:
 
 ```bash
 ./pd_calibration_tool --i-have-checked-the-harness \
@@ -347,14 +344,11 @@ fast high-freq trials don't trip the velocity watchdog.
 | Flag | Purpose |
 |---|---|
 | `--i-have-checked-the-harness` | Required. Refuses to start otherwise. |
-| `-y`, `--yes` | Skip the `Proceed?`/MGTO prompts and zero-cal (sim / scripted runs). |
+| `-y`, `--yes` | Skip the `Proceed?`/MGTO prompts (sim / scripted runs). |
 | `--joints N,N,...` | Subset of joints (default all 10). |
 | `--tests A,B,C` | Subset of tests (default A+B+C). |
 | `--sine-freqs <hz,...>` | Test B frequencies (default `0.25,0.5,1,2,4,8`). One value → single freq per run. |
 | `--quick` | Single 4 s sine on knee_l. Smoke test. |
-| `--no-zero-cal` | Skip the startq zero-calibration step (default = prompt, run). |
-| `--zero-cal-countdown <s>` | Seconds to hand-pose to the zero pose before measuring (default 10). |
-| `--zero-cal-measure <s>` | Averaging window for zero calibration (default 5). |
 | `--ramp-in-s <s>` | Smooth ramp from measured pose to MGTO before trials (default 3; 0 = none). |
 | `--safe-dq-max <rad/s>` | Velocity-watchdog trip; aborts a trial if `|dq|` exceeds it for 2 ticks (default 4). |
 | `--no-fold` | Don't fold (release gains to limp) at the end. |
@@ -712,24 +706,22 @@ viewer perception.
 # === Build ===
 cmake --preset desktop-mujoco && cmake --build build/desktop-mujoco -j
 
-# === Calibration (§6) — no run_interface ===
+# === Calibration (1_calibrate_joints.md) — C++ tools from bin/, python from root ===
 
-# Daily, 30 s:
-./bin/joint_range_tool --out /tmp/ranges.yaml
+# Daily, ~30 s (reproduces the locked calibration via canonical limits):
+(cd bin && ./joint_range_tool --out /tmp/ranges.yaml)
 python3 tools/apply_limit_calibration.py /tmp/ranges.yaml --apply
 
-# Bootstrap, one-time:
-./bin/joint_range_tool --out /tmp/bs1.yaml
+# First-time / full startq:
+(cd bin && ./joint_range_tool --out /tmp/bs1.yaml)          # bootstrap windows + sagittal
 python3 tools/apply_limit_calibration.py /tmp/bs1.yaml --apply
-./bin/ref_calibration_tool --no-zero-cal          # Phase 4.5 IMU tune
-./bin/joint_range_tool --out /tmp/canonical.yaml
-python3 tools/apply_limit_calibration.py /tmp/canonical.yaml \
-    --record-canonical
+(cd bin && ./joint_geom_cal_tool)                           # geometric per-joint pin (10 captures)
+(cd bin && ./joint_range_tool --out /tmp/canonical.yaml)    # re-record canonical in the new frame
+python3 tools/apply_limit_calibration.py /tmp/canonical.yaml --record-canonical
 
-# CoM correction (only if MGTO still tips after startq calibration):
-./bin/ref_calibration_tool --no-zero-cal          # Phase 5 dx/dy
-# → manually paste ref_joint_act from bin/ref_pose_calibrated.yaml
-#   into bin/config.yaml
+# CoM balance (only if MGTO still tips after startq is correct):
+(cd bin && ./ref_calibration_tool)
+# → paste ref_joint_act from bin/ref_pose_calibrated.yaml into bin/config.yaml
 
 # === PD calibration (§5) ===
 

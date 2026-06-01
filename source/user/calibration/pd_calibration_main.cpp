@@ -85,11 +85,6 @@ void print_usage(const char* prog) {
         "                          stand pose (MGTO) before warm-up (default 3).\n"
         "                          Use 0 only if you are already holding the\n"
         "                          robot at the stand pose.\n"
-        "  --no-zero-cal           Skip the startq zero-calibration step (which\n"
-        "                          otherwise prompts at start, default = run).\n"
-        "  --zero-cal-countdown <s> Seconds to move robot to the zero pose before\n"
-        "                          measuring starts (default 10).\n"
-        "  --zero-cal-measure <s>  Averaging window for zero calibration (default 5).\n"
         "  --no-fold               Don't fold (release gains to limp) when done.\n"
         "  --fold-secs <s>         Gain-release ramp at the end (default 2; 0 = instant).\n"
         "  --no-imu                Skip IMU backend (set imu_* fields to NaN).\n"
@@ -149,148 +144,6 @@ std::string json_escape(const std::string& s) {
         }
     }
     return o;
-}
-
-// startq zero calibration. Motors are held LIMP (kp=kd=tau=0) so the operator
-// can pose the robot by hand. Sequence: a `countdown_s` window to move the
-// robot to the zero pose, then a `measure_s` averaging window. Computes the
-// corrected per-joint offset.
-//
-// The backend reports q = raw/ratio - old_startq, so the value that should
-// become the new startq (raw/ratio at the zero pose) is old_startq + mean(q).
-// Returns true and fills `out_new` on a successful capture; false on abort.
-bool run_startq_calibration(
-    qmini::hal::IMotorBackend* motor,
-    const std::vector<float>& old_startq,
-    double countdown_s, double measure_s, double tick_hz,
-    std::array<float, qmini::calib::kNumJoints>& out_new) {
-    using clk = std::chrono::steady_clock;
-    const int NJ = qmini::calib::kNumJoints;
-    const long period_us = static_cast<long>(1e6 / tick_hz);
-
-    std::printf("\n=== startq zero calibration ===\n");
-    std::printf("Motors are LIMP. By hand, move the robot to the ZERO pose\n"
-                "(every joint at its natural/URDF zero) and hold it there.\n"
-                "Countdown: %.0f s to position, then averaging for %.0f s.\n"
-                "Ctrl-C aborts.\n\n", countdown_s, measure_s);
-    std::fflush(stdout);
-
-    // Phase 1: countdown — keep limp, show remaining time + live positions.
-    auto cd_start = clk::now();
-    auto cd_end   = cd_start + std::chrono::duration_cast<clk::duration>(
-                                   std::chrono::duration<double>(countdown_s));
-    auto next = clk::now();
-    auto last_print = clk::now() - std::chrono::seconds(1);
-    while (clk::now() < cd_end && !g_abort) {
-        qmini::hal::MotorCmdFrame limp{};   // zero torque
-        motor->send(limp);
-        auto st = motor->read();
-        auto now = clk::now();
-        if (now - last_print > std::chrono::milliseconds(200)) {
-            double remaining =
-                std::chrono::duration<double>(cd_end - now).count();
-            std::printf("\r  [move to zero: %4.1f s] q:", remaining);
-            for (int i = 0; i < NJ; ++i) std::printf(" %+.3f", st.q[i]);
-            std::printf("   ");
-            std::fflush(stdout);
-            last_print = now;
-        }
-        next += std::chrono::microseconds(period_us);
-        std::this_thread::sleep_until(next);
-    }
-    if (g_abort) { std::printf("\n[zerocal] aborted — startq unchanged.\n"); return false; }
-
-    // Phase 2: measure — average the (startq-adjusted) positions.
-    std::printf("\n  >>> MEASURING for %.0f s — HOLD STILL <<<\n", measure_s);
-    std::fflush(stdout);
-    std::array<double, qmini::calib::kNumJoints> sum{};
-    std::size_t n = 0;
-    auto m_end = clk::now() + std::chrono::duration_cast<clk::duration>(
-                                  std::chrono::duration<double>(measure_s));
-    next = clk::now();
-    last_print = clk::now() - std::chrono::seconds(1);
-    while (clk::now() < m_end && !g_abort) {
-        qmini::hal::MotorCmdFrame limp{};
-        motor->send(limp);
-        auto st = motor->read();
-        for (int i = 0; i < NJ; ++i) sum[i] += st.q[i];
-        ++n;
-        auto now = clk::now();
-        if (now - last_print > std::chrono::milliseconds(200)) {
-            double remaining =
-                std::chrono::duration<double>(m_end - now).count();
-            std::printf("\r  [measuring: %4.1f s, n=%zu] ", remaining, n);
-            std::fflush(stdout);
-            last_print = now;
-        }
-        next += std::chrono::microseconds(period_us);
-        std::this_thread::sleep_until(next);
-    }
-    std::printf("\n");
-    if (g_abort || n == 0) {
-        std::printf("[zerocal] aborted — startq unchanged.\n");
-        return false;
-    }
-
-    std::printf("[zerocal] averaged %zu samples over ~%.0f s\n", n, measure_s);
-    std::printf("  %-12s %10s %10s\n", "joint", "old", "new");
-    for (int i = 0; i < NJ; ++i) {
-        const float old_i =
-            (i < static_cast<int>(old_startq.size())) ? old_startq[i] : 0.f;
-        out_new[i] = old_i + static_cast<float>(sum[i] / static_cast<double>(n));
-        std::printf("  %-12s %10.4f %10.4f\n",
-                    qmini::calib::kJointNames[i], old_i, out_new[i]);
-    }
-    return true;
-}
-
-// Rewrite the `startq:` line in config.yaml in place, preserving every other
-// line (and comments). Writes a .bak first. Returns true on success.
-bool save_startq_to_config(
-    const std::string& path,
-    const std::array<float, qmini::calib::kNumJoints>& sq) {
-    std::ifstream in(path);
-    if (!in) {
-        std::fprintf(stderr, "[zerocal] cannot read %s\n", path.c_str());
-        return false;
-    }
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(in, line)) lines.push_back(line);
-    in.close();
-
-    // Backup the original before touching it.
-    {
-        std::ofstream bak(path + ".bak");
-        if (bak) for (const auto& l : lines) bak << l << "\n";
-    }
-
-    std::ostringstream rep;
-    rep << "startq: [";
-    for (int i = 0; i < qmini::calib::kNumJoints; ++i) {
-        rep << std::fixed << std::setprecision(6) << sq[i];
-        if (i + 1 < qmini::calib::kNumJoints) rep << ", ";
-    }
-    rep << "]";
-
-    bool found = false;
-    for (auto& l : lines) {
-        const std::size_t p = l.find_first_not_of(" \t");
-        if (p != std::string::npos && l.compare(p, 7, "startq:") == 0) {
-            l = rep.str();
-            found = true;
-            break;
-        }
-    }
-    if (!found) lines.push_back(rep.str());
-
-    std::ofstream out(path);
-    if (!out) {
-        std::fprintf(stderr, "[zerocal] cannot write %s\n", path.c_str());
-        return false;
-    }
-    for (const auto& l : lines) out << l << "\n";
-    return true;
 }
 
 void write_manifest(const fs::path& run_dir,
@@ -381,9 +234,6 @@ int main(int argc, char** argv) {
     bool   tick_hz_overridden = false;
     double safe_dq_max = -1.0;      // -1 sentinel → use LoopOptions default (4.0)
     double ramp_in_s   = -1.0;      // -1 sentinel → use LoopOptions default (3.0)
-    double zero_cal_countdown = 10.0;  // time to move robot to zero pose
-    double zero_cal_measure   = 5.0;   // averaging window for startq calibration
-    bool   no_zero_cal = false;        // skip the startq calibration prompt
     bool   no_fold = false;            // don't fold (release gains) at the end
     double fold_secs = -1.0;           // -1 sentinel → LoopOptions default (2.0)
     std::string iface = "eth0";
@@ -426,23 +276,6 @@ int main(int argc, char** argv) {
             ramp_in_s = std::atof(next("--ramp-in-s"));
             if (ramp_in_s < 0.0) {
                 std::fprintf(stderr, "--ramp-in-s must be >= 0 (was %g)\n", ramp_in_s);
-                return 2;
-            }
-        }
-        else if (a == "--no-zero-cal") no_zero_cal = true;
-        else if (a == "--zero-cal-countdown") {
-            zero_cal_countdown = std::atof(next("--zero-cal-countdown"));
-            if (zero_cal_countdown < 0.0) {
-                std::fprintf(stderr, "--zero-cal-countdown must be >= 0 (was %g)\n",
-                             zero_cal_countdown);
-                return 2;
-            }
-        }
-        else if (a == "--zero-cal-measure") {
-            zero_cal_measure = std::atof(next("--zero-cal-measure"));
-            if (zero_cal_measure <= 0.0) {
-                std::fprintf(stderr, "--zero-cal-measure must be > 0 (was %g)\n",
-                             zero_cal_measure);
                 return 2;
             }
         }
@@ -641,47 +474,6 @@ int main(int argc, char** argv) {
     g_loop = &loop;
     std::signal(SIGINT,  handle_sigint);
     std::signal(SIGTERM, handle_sigint);
-
-    // startq zero calibration — runs before everything else. Interactive on
-    // hardware (default = run); skipped under --yes (scripted) or --no-zero-cal.
-    if (!assume_yes && !no_zero_cal) {
-        std::printf("\nRun startq zero calibration first? [Y/n]: ");
-        std::fflush(stdout);
-        std::string ans;
-        std::getline(std::cin, ans);
-        const bool do_cal = ans.empty() || ans[0] == 'y' || ans[0] == 'Y';
-        if (do_cal) {
-            std::array<float, qmini::calib::kNumJoints> new_startq{};
-            if (run_startq_calibration(motor.get(), cfg.startq,
-                                       zero_cal_countdown, zero_cal_measure,
-                                       tick_hz, new_startq)) {
-                std::printf("\nAccept these values? They will be applied now AND "
-                            "saved to config.yaml\n(picked up by future runs and "
-                            "run_interface). [y/N]: ");
-                std::fflush(stdout);
-                std::string ok;
-                std::getline(std::cin, ok);
-                if (!ok.empty() && (ok[0] == 'y' || ok[0] == 'Y')) {
-                    // Apply to the live backend so THIS run reaches MGTO.
-                    motor->set_zero_offset(new_startq);
-                    if (save_startq_to_config("config.yaml", new_startq)) {
-                        std::printf("[zerocal] applied to this session and saved "
-                                    "to config.yaml (backup: config.yaml.bak).\n");
-                        log_file << "[zerocal] startq saved to config.yaml\n";
-                        log_file.flush();
-                    } else {
-                        std::printf("[zerocal] applied to this session, but SAVE "
-                                    "FAILED — value will be lost after this run.\n");
-                    }
-                } else {
-                    std::printf("[zerocal] rejected — startq unchanged.\n");
-                }
-            }
-        } else {
-            std::printf("[zerocal] skipped.\n");
-        }
-        if (g_abort) { motor->stop(); if (imu) imu->stop(); return 0; }
-    }
 
     // Live viewer (mujoco backend only). Lets the operator watch the trial
     // sequence in sim before trusting it on the real robot.
