@@ -132,6 +132,16 @@ private:
                     serial.sendRecv(&c, &d);
                     const float q  = d.q  / ratio - sq[id];
                     const float dq = d.dq / ratio;
+                    // FIXME(tau_est scaling, 2026-05-31): position/velocity
+                    // reduce by the gear ratio (motor→joint = /ratio), but
+                    // TORQUE amplifies: joint torque = motor torque × ratio.
+                    // This divides, so tau_est is ~ratio² too small (see
+                    // docs/calibration_notes/friction_findings_2026_05_31.md).
+                    // Candidate fix:  const float t = d.tau * ratio;
+                    // NOT applied yet — this is the deploy torque convention.
+                    // First VERIFY against the logged raw tau_motor (= d.tau)
+                    // under a known static load (compare to kp·err gravity
+                    // torque from the --static balance log) before changing it.
                     const float t  = d.tau / ratio;
                     std::lock_guard<std::mutex> g(state_mu_);
                     state_.q[id]        = q;
