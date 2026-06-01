@@ -1,20 +1,25 @@
-# Static balance log — first run (2026-05-31)
+# Static balance log (2026-05-31)
 
-Run: `bin/data/static_balance/2026-05-31_21-13-02_initial/` (`--static`,
-10 s hold at MGTO, standing on the floor). Captured per
-`STATIC_BALANCE_LOG_SPEC.md` for the URDF mass-distribution check, and it
-doubled as the verification of the `tau_est` scaling bug.
+Two `--static` runs (10 s MGTO hold). **Use the hard-floor run for the
+URDF mass-distribution check**; the first run was on carpet and is not
+valid for it.
+
+| Run | Surface | pitch / roll | Valid for mass check? |
+|---|---|---|---|
+| `2026-05-31_21-13-02_initial` | **carpet** | +8.9° / −1.6° | ❌ soft, tilting contact |
+| `2026-05-31_22-57-48_initial_floor` | **hard floor** | **−2.0° / −0.6°** | ✅ |
 
 ## Health / stability
 
-- IMU ω rms = [0.005, 0.009, 0.007] rad/s ≪ 0.05 → **stable**.
-- Temps 30–34 °C, all `merror = 0`. 667 samples, 10.0 s.
-- **Standing pose leans +8.9° forward** (pitch), roll −1.6°. Stable lean —
-  this is the real standing equilibrium. It's consistent with the spec's
-  premise (real robot balances leaning forward while MuJoCo with the URDF
-  falls all the way forward → mass distributed differently than the URDF).
-  This NPZ + `imu_rpy` is what the `qmini_lab` static-balance fitter
-  consumes.
+- Both runs stable (IMU ω rms ~0.007 rad/s ≪ 0.05), temps 30–34 °C,
+  `merror = 0`, 667 samples / 10 s, no drift.
+- **The +8.9° "forward lean" on carpet was a CARPET ARTIFACT** — the
+  compliant surface let the feet sink/tilt forward, so the feet weren't
+  flat on rigid ground (breaks the `mj_inverse` feet-flat assumption).
+  On a **hard floor the same pose holds near-level (−2.0° pitch)**, so the
+  9° was not a mass signal and not a calibration error.
+- The valid mass-check input is the **hard-floor** NPZ
+  (`2026-05-31_22-57-48_initial_floor`) + its `imu_rpy`.
 
 ## `tau_est` scaling bug — CONFIRMED and FIXED
 
