@@ -74,6 +74,21 @@ float trial_offset(const Trial& trial, double t) {
             if (t < settle + ramp + hold + decay) return trial.amp;
             return 0.f;
         }
+        case TestKind::ConstVel: {
+            // Triangle-wave position sweep at constant |velocity| (stored in
+            // freq_hz, rad/s) and amplitude `amp`: the joint traverses ±amp at
+            // a fixed speed in both directions, under full PD. Friction is read
+            // from tau_est at steady velocity (see fit_friction.py).
+            const double settle = 1.0;
+            if (t < settle) return 0.f;
+            const double v = trial.freq_hz;          // rad/s (field reused)
+            const double A = trial.amp;
+            if (v <= 0.0 || A <= 0.0) return 0.f;
+            const double P = 4.0 * A / v;            // triangle period for slope v
+            double saw = std::fmod((t - settle) / P, 1.0);
+            if (saw < 0.0) saw += 1.0;
+            return static_cast<float>(A * (1.0 - 4.0 * std::fabs(saw - 0.5)));
+        }
     }
     return 0.f;
 }
@@ -112,7 +127,7 @@ std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& kd,
     const std::vector<float>& sine_freqs) {
     std::vector<Trial> out;
-    out.reserve(10 * (1 + sine_freqs.size() + 1 + 1));  // A + B*freqs + C + D
+    out.reserve(10 * (1 + sine_freqs.size() + 1 + 1 + 3));  // A + B*freqs + C + D + E*3
 
     for (int j = 0; j < kNumJoints; ++j) {
         float mgto_j = mgto_pose.q_target[j];
@@ -186,6 +201,33 @@ std::vector<Trial> build_default_plan(
             t.label = fmt_label("D", kp_j, kd_j, "release");
             t.duration_s = 8.0;
             out.push_back(t);
+        }
+
+        // Test E: constant-velocity friction sweep (viscous b + Coulomb f),
+        // read from tau_est. Works regardless of gravity restoring → the
+        // method for high-ratio hip_roll and no-gravity hip_yaw/ankle. Opt-in
+        // via --tests E. One trial per velocity (need ≥2 to split b from f).
+        {
+            const float amp_e = safe_amp(0.12f, mgto_j, lo, hi);
+            const float vels[] = {0.2f, 0.5f, 1.0f};   // rad/s
+            for (float v : vels) {
+                Trial t;
+                t.joint = j;
+                t.test = TestKind::ConstVel;
+                t.kp = kp_j;
+                t.kd = kd_j;
+                t.amp = amp_e;
+                t.freq_hz = v;                 // velocity (rad/s) stored here
+                t.pose_id = 0;
+                char lbl[64];
+                std::snprintf(lbl, sizeof(lbl), "E_kp%.0f_kd%.2f_cv_%.2frad_s",
+                              kp_j, kd_j, v);
+                t.label = lbl;
+                // ~4 traversals (period = 4A/v), clamped to a sane range.
+                t.duration_s =
+                    std::min(20.0, std::max(4.0, 4.0 * (4.0 * amp_e / v) + 1.0));
+                out.push_back(t);
+            }
         }
     }
     return out;

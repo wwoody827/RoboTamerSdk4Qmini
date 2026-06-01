@@ -412,11 +412,21 @@ python3 tools/calibration_fit/fit_pd.py <run_dir>/ --mjcf sim_assets/q1_sim.mjcf
 python3 tools/calibration_fit/fit_pd_sine.py <run_dir>/
 
 # 2c. FREE-RELEASE data (Test D): passive viscous damping b + Coulomb
-#     friction f → passive_dynamics.yaml. Needs BOTH A and D in the run
-#     (takes I and gravity stiffness from the Test A fit). See
-#     FREE_RELEASE_CALIBRATION_SPEC.md.
+#     friction f → passive_dynamics.yaml. Needs a gravity swing (skips
+#     no-swing joints). See FREE_RELEASE_CALIBRATION_SPEC.md.
 python3 tools/calibration_fit/fit_passive.py <run_dir>/
+
+# 2d. CONST-VELOCITY data (Test E): friction f + viscous b read from
+#     tau_est → friction.yaml. No gravity/inertia needed → the method for
+#     high-ratio hip_roll and no-gravity hip_yaw/ankle. Needs ≥2 speeds.
+python3 tools/calibration_fit/fit_friction.py <run_dir>/
 ```
+
+Motors are identical, so the per-motor friction only needs **one normal
+joint** (e.g. hip_pitch) + **hip_roll** (extra 3× gear → ratio 18.99 vs
+6.33, friction reflects differently). Inertia is per-joint and comes from
+the URDF, not measured. Test E is the robust friction method:
+`./pd_calibration_tool --i-have-checked-the-harness --tests E --joints 1,6 --safe-dq-max 8`.
 
 All three take the run dir as the first arg and accept `--out` for the
 yaml path (default `<run_dir>/calibration.yaml`).
