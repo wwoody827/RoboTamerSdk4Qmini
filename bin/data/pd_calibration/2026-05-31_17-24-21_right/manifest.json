@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-05-31_17-24-21_right",
+  "robot": "Qmini Q1",
+  "sdk_commit": "7d90855e328f227516ee02a5fd9023c465b814e7",
+  "tick_hz_requested": 66.6667,
+  "deploy_hz": 66.6667,
+  "tick_hz_overridden": false,
+  "joint_names": ["hip_yaw_l", "hip_roll_l", "hip_pitch_l", "knee_l", "ankle_l", "hip_yaw_r", "hip_roll_r", "hip_pitch_r", "knee_r", "ankle_r"],
+  "mgto_pose": [0.4, -0.1, -1.5146, 1.0105, -1.2449, -0.4, 0.1, 1.5146, -1.0105, 1.2449],
+  "trials": [
+    {"joint": 5, "joint_name": "hip_yaw_r", "test": "A", "pose": "MGTO", "kp": 55, "kd": 0.3, "freq_hz": null, "amplitude_rad": 0.15, "duration_s": 9, "tick_rate_hz_actual": 66.5597, "n_samples": 601, "file": "joint_05_hip_yaw_r/A_kp55_kd0.30_step.npz", "result": "ok"},
+    {"joint": 5, "joint_name": "hip_yaw_r", "test": "C", "pose": "MGTO", "kp": 55, "kd": 0.3, "freq_hz": 0, "amplitude_rad": 0.08, "duration_s": 30, "tick_rate_hz_actual": 66.6375, "n_samples": 2001, "file": "joint_05_hip_yaw_r/C_kp55_kd0.30_chirp.npz", "result": "ok"},
+    {"joint": 6, "joint_name": "hip_roll_r", "test": "A", "pose": "MGTO", "kp": 105, "kd": 2.5, "freq_hz": null, "amplitude_rad": 0.14, "duration_s": 9, "tick_rate_hz_actual": 66.5597, "n_samples": 601, "file": "joint_06_hip_roll_r/A_kp105_kd2.50_step.npz", "result": "ok"},
+    {"joint": 6, "joint_name": "hip_roll_r", "test": "C", "pose": "MGTO", "kp": 105, "kd": 2.5, "freq_hz": 0, "amplitude_rad": 0.08, "duration_s": 30, "tick_rate_hz_actual": 66.6377, "n_samples": 2001, "file": "joint_06_hip_roll_r/C_kp105_kd2.50_chirp.npz", "result": "ok"},
+    {"joint": 7, "joint_name": "hip_pitch_r", "test": "A", "pose": "MGTO", "kp": 75, "kd": 0.3, "freq_hz": null, "amplitude_rad": 0.15, "duration_s": 9, "tick_rate_hz_actual": 66.5597, "n_samples": 601, "file": "joint_07_hip_pitch_r/A_kp75_kd0.30_step.npz", "result": "ok"},
+    {"joint": 7, "joint_name": "hip_pitch_r", "test": "C", "pose": "MGTO", "kp": 75, "kd": 0.3, "freq_hz": 0, "amplitude_rad": 0.08, "duration_s": 30, "tick_rate_hz_actual": 66.6376, "n_samples": 2001, "file": "joint_07_hip_pitch_r/C_kp75_kd0.30_chirp.npz", "result": "ok"},
+    {"joint": 8, "joint_name": "knee_r", "test": "A", "pose": "MGTO", "kp": 45, "kd": 0.5, "freq_hz": null, "amplitude_rad": 0.15, "duration_s": 9, "tick_rate_hz_actual": 66.5597, "n_samples": 601, "file": "joint_08_knee_r/A_kp45_kd0.50_step.npz", "result": "ok"},
+    {"joint": 8, "joint_name": "knee_r", "test": "C", "pose": "MGTO", "kp": 45, "kd": 0.5, "freq_hz": 0, "amplitude_rad": 0.08, "duration_s": 30, "tick_rate_hz_actual": 66.6377, "n_samples": 2001, "file": "joint_08_knee_r/C_kp45_kd0.50_chirp.npz", "result": "ok"},
+    {"joint": 9, "joint_name": "ankle_r", "test": "A", "pose": "MGTO", "kp": 30, "kd": 0.25, "freq_hz": null, "amplitude_rad": 0.15, "duration_s": 9, "tick_rate_hz_actual": 66.5597, "n_samples": 601, "file": "joint_09_ankle_r/A_kp30_kd0.25_step.npz", "result": "ok"},
+    {"joint": 9, "joint_name": "ankle_r", "test": "C", "pose": "MGTO", "kp": 30, "kd": 0.25, "freq_hz": 0, "amplitude_rad": 0.08, "duration_s": 30, "tick_rate_hz_actual": 66.6377, "n_samples": 2001, "file": "joint_09_ankle_r/C_kp30_kd0.25_chirp.npz", "result": "ok"}
+  ]
+}
