@@ -23,6 +23,7 @@ honest.
 | `BUILDING.md` | The three CMake presets and what each needs |
 | `USAGE.md` | How to run `run_interface` and `pd_calibration_tool` day-to-day |
 | `1_calibrate_joints.md` | Joint (`startq`) calibration runbook: bootstrap → geometric-pin (Stage 1.5) → (or jog-refine) → canonical lock |
+| `2_pd_calibration.md` | PD + friction calibration runbook (sim2real): step/sine/chirp + free-release; one motor + hip_roll; what works on this hardware |
 | `GEOMETRIC_JOINT_CALIBRATION_SPEC.md` | Spec: per-joint geometric `startq` calibration via physical landmarks (square / level / view). Implemented by `bin/joint_geom_cal_tool`; reference images in `docs/images/geom_cal/` |
 | `PD_CALIBRATION_SPEC.md` | Spec for the per-joint PD identification protocol |
 | `PYTHON_REMOVAL.md` | Why the runtime is pure C++ (and the protocol references for the hardware backends) |
