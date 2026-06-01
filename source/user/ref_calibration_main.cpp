@@ -427,10 +427,11 @@ int main(int argc, char** argv) {
         for (int i = 0; i < kNumJoints; ++i) out[i] = ref_q[i] + dq[i];
     };
 
-    // IMU RMS accumulator for the verify phase.
+    // IMU RMS accumulator for the verify phase (mean written at accept).
     float imu_rpy_sum[3] = {0, 0, 0};
     float imu_rpy_sq[3]  = {0, 0, 0};
     int   imu_count = 0;
+    float last_rpy[3] = {0, 0, 0};   // most recent read, for the LIVE display
 
     // PD gains: use config.yaml. q_target is in CONTROLLER frame (centered
     // on the URDF nominal pose); we add dynamic_zero before shipping to the
@@ -607,7 +608,8 @@ int main(int argc, char** argv) {
             if (imu) {
                 auto base = imu->read();
                 for (int k = 0; k < 3; ++k) {
-                    imu_rpy_sum[k] += base.rpy[k];
+                    last_rpy[k]     = base.rpy[k];     // live (instantaneous)
+                    imu_rpy_sum[k] += base.rpy[k];     // accumulate for the mean
                     imu_rpy_sq[k]  += base.rpy[k] * base.rpy[k];
                 }
                 imu_count++;
@@ -619,17 +621,14 @@ int main(int argc, char** argv) {
             // visible feedback the operator needs.
             if (++print_throttle >= static_cast<int>(0.2 / dt)) {
                 print_throttle = 0;
-                float rpy_mean[3] = {0, 0, 0};
-                if (imu_count > 0) {
-                    rpy_mean[0] = imu_rpy_sum[0] / imu_count;
-                    rpy_mean[1] = imu_rpy_sum[1] / imu_count;
-                    rpy_mean[2] = imu_rpy_sum[2] / imu_count;
-                }
+                // LIVE = instantaneous read (responsive). The running mean is
+                // kept for the saved balance stat, not shown here — averaging
+                // it live made it look "stuck" as n grew.
                 std::printf("\r\x1b[K[live] dx=%+5.1f mm  dy=%+5.1f mm  |  "
                             "IMU rpy=(%+5.3f, %+5.3f, %+5.3f) rad   "
                             "n=%d",
                             dx_foot * 1e3, dy_foot * 1e3,
-                            rpy_mean[0], rpy_mean[1], rpy_mean[2], imu_count);
+                            last_rpy[0], last_rpy[1], last_rpy[2], imu_count);
                 std::fflush(stdout);
             }
             sleep_until_next(t_tick);
