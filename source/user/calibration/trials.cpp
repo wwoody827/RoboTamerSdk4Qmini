@@ -89,6 +89,10 @@ float trial_offset(const Trial& trial, double t) {
             if (saw < 0.0) saw += 1.0;
             return static_cast<float>(A * (1.0 - 4.0 * std::fabs(saw - 0.5)));
         }
+        case TestKind::StaticHold:
+            // No perturbation — every joint just holds MGTO under PD while we
+            // log. (Gravity-balance measurement; see STATIC_BALANCE_LOG_SPEC.)
+            return 0.f;
     }
     return 0.f;
 }
@@ -231,6 +235,26 @@ std::vector<Trial> build_default_plan(
         }
     }
     return out;
+}
+
+std::vector<Trial> build_static_plan(
+    const std::array<float, kNumJoints>& kp,
+    const std::array<float, kNumJoints>& kd,
+    double duration_s) {
+    // Single hold trial. joint/kp/kd are nominal (joint 0 carries the deploy
+    // gains so it matches the hold gains the loop applies to the other 9);
+    // the offset is 0 for every tick, so all 10 joints hold MGTO together.
+    Trial t;
+    t.joint = 0;
+    t.test = TestKind::StaticHold;
+    t.kp = kp.empty() ? 0.f : kp[0];
+    t.kd = kd.empty() ? 0.f : kd[0];
+    t.amp = 0.f;
+    t.freq_hz = -1.f;
+    t.pose_id = 0;
+    t.label = "F_static_hold";
+    t.duration_s = duration_s;
+    return {t};
 }
 
 std::vector<Trial> build_quick_plan(int joint_index) {

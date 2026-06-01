@@ -21,7 +21,7 @@ constexpr int kNumJoints = 10;
 extern const std::array<const char*, kNumJoints> kJointNames;
 
 enum class TestKind { Step = 'A', Sine = 'B', Chirp = 'C', FreeRelease = 'D',
-                      ConstVel = 'E' };
+                      ConstVel = 'E', StaticHold = 'F' };
 
 struct PoseRef {
     std::string label;                              // "MGTO", "crouch", "tall"
@@ -70,6 +70,15 @@ std::vector<Trial> build_default_plan(
 
 // Quick smoke-test plan: 1 joint × 1 step × 2 s. Used by --quick.
 std::vector<Trial> build_quick_plan(int joint_index = 0);
+
+// Static-balance plan: a single zero-perturbation hold at MGTO. All joints
+// stay at their deploy gains (kp/kd) and the offset is 0, so the whole robot
+// holds the standing pose while every tick is logged. Used by --static for
+// the URDF mass-distribution check (see STATIC_BALANCE_LOG_SPEC.md).
+std::vector<Trial> build_static_plan(
+    const std::array<float, kNumJoints>& kp,
+    const std::array<float, kNumJoints>& kd,
+    double duration_s);
 
 }  // namespace calib
 }  // namespace qmini

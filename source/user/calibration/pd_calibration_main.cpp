@@ -67,6 +67,11 @@ void print_usage(const char* prog) {
         "                          default is to prompt before any motion.\n"
         "  --quick                 Single joint, single short step (~3 s).\n"
         "                          For sim sanity-checking the binary.\n"
+        "  --static                Static-balance log: hold MGTO (all joints on\n"
+        "                          deploy PD, no perturbation) and log every tick\n"
+        "                          for the URDF mass-distribution check. Ignores\n"
+        "                          --tests/--joints. STATIC_BALANCE_LOG_SPEC.md.\n"
+        "  --static-secs <s>       --static log-window length (default 10).\n"
         "  --tests A,B,C[,D,E]     Which tests to run (default: A,B,C). Opt-in:\n"
         "                          D = free-release passive dynamics (needs a\n"
         "                          gravity swing; FREE_RELEASE_CALIBRATION_SPEC.md);\n"
@@ -229,6 +234,8 @@ int main(int argc, char** argv) {
     bool harness_checked = false;
     bool assume_yes = false;
     bool quick = false;
+    bool static_hold = false;       // --static: single MGTO hold for mass-ID
+    double static_secs = 10.0;      // --static-secs: log-window length
     bool no_imu = false;
     std::string tests = "A,B,C";
     std::string joints_str;
@@ -260,6 +267,8 @@ int main(int argc, char** argv) {
         else if (a == "--i-have-checked-the-harness") harness_checked = true;
         else if (a == "--yes" || a == "-y") assume_yes = true;
         else if (a == "--quick") quick = true;
+        else if (a == "--static") static_hold = true;
+        else if (a == "--static-secs") static_secs = std::atof(next("--static-secs"));
         else if (a == "--no-imu") no_imu = true;
         else if (a == "--tests")    tests = next("--tests");
         else if (a == "--joints")   joints_str = next("--joints");
@@ -357,7 +366,12 @@ int main(int argc, char** argv) {
 
     // Build plan.
     std::vector<Trial> plan;
-    if (quick) {
+    if (static_hold) {
+        // Single zero-perturbation hold at MGTO; all joints stay on cfg gains
+        // (the loop's hold gains are already cfg.kp/kd). For the URDF
+        // mass-distribution check — STATIC_BALANCE_LOG_SPEC.md.
+        plan = qmini::calib::build_static_plan(kp_arr, kd_arr, static_secs);
+    } else if (quick) {
         plan = qmini::calib::build_quick_plan(0);
     } else {
         // Test A is a single step trial; all tests use the per-joint deploy

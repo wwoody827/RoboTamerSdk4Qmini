@@ -121,6 +121,27 @@ Details: `docs/calibration_notes/friction_findings_2026_05_31.md`.
 
 ---
 
+## Stage 3 — Static-balance log (URDF mass-distribution check)
+
+Separate purpose: the real robot stands at MGTO but MuJoCo with the same
+URDF + PD falls forward → a **URDF mass-distribution mismatch**. To localize
+it, log the real static equilibrium and compare `kp·err` to the URDF's
+`mj_inverse` gravity torque per joint (the fit lives in `qmini_lab`).
+
+`pd_calibration_tool --static` does the logging — a single zero-perturbation
+MGTO hold with **all joints on deploy PD** (no need for a separate tool; it
+reuses the ramp/settle/log/fold harness and the exact NPZ schema):
+```bash
+cd ~/code/RoboTamerSdk4Qmini/bin
+./pd_calibration_tool --i-have-checked-the-harness --static --static-secs 10 \
+    --output-root data/static_balance --label initial
+```
+Output NPZ: `<output-root>/<run_id>/joint_00_hip_yaw_l/F_static_hold.npz`
+(the dir name is nominal — it holds all 10 joints' `q_target/q/dq/kp/kd/
+tau_est/imu_*`). Feed it to `qmini_lab`'s static-balance fitter. Per
+`STATIC_BALANCE_LOG_SPEC.md`, use `kp·err` (not `tau_est` — see below) and, if
+one pose is inconclusive, re-run at a tweaked `ref_joint_act` for 2–3 poses.
+
 ## What does NOT work here: Test E / `tau_est`
 
 Test E reads friction from the motor torque at constant velocity — correct in
@@ -172,6 +193,7 @@ Per `PD_CALIBRATION_SPEC.md §8` and project policy — **review and edit
 --i-have-checked-the-harness   required (refuses to start otherwise)
 --joints N,N,...               subset (default all 10) — use for half-side
 --tests A,B,C[,D,E]            default A,B,C; D/E opt-in
+--static [--static-secs <s>]   static-balance log (MGTO hold, all joints; 10 s)
 --sine-freqs <hz,...>          Test B frequencies (default 0.25,0.5,1,2,4,8)
 --safe-dq-max <rad/s>          velocity watchdog (default 4; use 8 for fast trials)
 --label / --operator / --notes run metadata
