@@ -31,6 +31,13 @@ struct MotorStateFrame {
     std::array<float, kNumJoints> dq{};
     std::array<float, kNumJoints> tau_est{};
     std::array<float, kNumJoints> ddq{};
+    // Raw per-motor returns (hardware backend only; sim/mujoco leave defaults).
+    // tau_motor is the UNSCALED motor-side torque straight from the SDK
+    // (d.tau) — unlike tau_est it is NOT divided by the gear ratio, so it
+    // sidesteps the tau_est scaling issue (see friction_findings_2026_05_31).
+    std::array<float, kNumJoints> tau_motor{};  // N·m, motor-side, raw
+    std::array<float, kNumJoints> temp{};       // °C (0 if unavailable)
+    std::array<float, kNumJoints> merror{};     // motor error code (0 = ok)
 };
 
 struct BaseStateFrame {

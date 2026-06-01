@@ -387,8 +387,10 @@ No kp/kd sweep — Test A is one step trial per joint.
 └── joint_09_ankle_pitch_r/…
 ```
 
-Each `.npz` has 13 arrays + 3 scalars (16 keys); schema in
-`PD_CALIBRATION_SPEC.md §7`.
+Each `.npz` has 16 arrays + 3 scalars; the base schema is in
+`PD_CALIBRATION_SPEC.md §7`, plus the raw per-motor returns `tau_motor`
+(unscaled motor-side torque), `temp` (°C), and `merror` (error code) —
+hardware backend only, logged as-is for offline analysis.
 
 ### Fitting
 

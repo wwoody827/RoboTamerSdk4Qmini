@@ -155,6 +155,13 @@ principle, but **this robot's `tau_est` is unusable for it**:
 So **use Test D (position-based) for friction**, not E. `fit_friction.py` and
 Test E stay in the tree (correct given a good torque sensor) but are flagged.
 
+> Every trial's NPZ also logs the **raw per-motor returns** — `tau_motor`
+> (unscaled motor-side torque, *not* divided by ratio, so it sidesteps the
+> `tau_est` bug), `temp` (°C), and `merror` — straight from the SDK for
+> offline analysis. If the scaling is corrected later, `tau_motor × ratio`
+> is the proper joint torque; for now it's still noise-limited for friction,
+> but it's there for the record and for thermal/error diagnostics.
+
 ---
 
 ## Applying results to `qmini_lab` (by hand)

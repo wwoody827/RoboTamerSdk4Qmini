@@ -33,6 +33,9 @@ struct SampleBuf {
     std::vector<float>  q;
     std::vector<float>  dq;
     std::vector<float>  tau_est;
+    std::vector<float>  tau_motor;    // raw motor-side torque (unscaled)
+    std::vector<float>  temp;         // motor temperature, °C
+    std::vector<float>  merror;       // motor error code
     std::vector<float>  imu_rpy;      // N*3
     std::vector<float>  imu_omega;
     std::vector<float>  imu_acc;
@@ -47,6 +50,9 @@ struct SampleBuf {
         q.reserve(n * kNumJoints);
         dq.reserve(n * kNumJoints);
         tau_est.reserve(n * kNumJoints);
+        tau_motor.reserve(n * kNumJoints);
+        temp.reserve(n * kNumJoints);
+        merror.reserve(n * kNumJoints);
         imu_rpy.reserve(n * 3);
         imu_omega.reserve(n * 3);
         imu_acc.reserve(n * 3);
@@ -64,6 +70,9 @@ struct SampleBuf {
             q.push_back(st.q[i]);
             dq.push_back(st.dq[i]);
             tau_est.push_back(st.tau_est[i]);
+            tau_motor.push_back(st.tau_motor[i]);
+            temp.push_back(st.temp[i]);
+            merror.push_back(st.merror[i]);
         }
         if (base.valid) {
             for (int i = 0; i < 3; ++i) imu_rpy.push_back(base.rpy[i]);
@@ -95,6 +104,9 @@ void write_npz(const std::string& path, const SampleBuf& buf,
     w.add_f32_2d("q", buf.q.data(), N, kNumJoints);
     w.add_f32_2d("dq", buf.dq.data(), N, kNumJoints);
     w.add_f32_2d("tau_est", buf.tau_est.data(), N, kNumJoints);
+    w.add_f32_2d("tau_motor", buf.tau_motor.data(), N, kNumJoints);
+    w.add_f32_2d("temp", buf.temp.data(), N, kNumJoints);
+    w.add_f32_2d("merror", buf.merror.data(), N, kNumJoints);
     w.add_f32_2d("imu_rpy", buf.imu_rpy.data(), N, 3);
     w.add_f32_2d("imu_omega", buf.imu_omega.data(), N, 3);
     w.add_f32_2d("imu_acc", buf.imu_acc.data(), N, 3);

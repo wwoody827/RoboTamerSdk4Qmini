@@ -134,9 +134,13 @@ private:
                     const float dq = d.dq / ratio;
                     const float t  = d.tau / ratio;
                     std::lock_guard<std::mutex> g(state_mu_);
-                    state_.q[id]       = q;
-                    state_.dq[id]      = dq;
-                    state_.tau_est[id] = t;
+                    state_.q[id]        = q;
+                    state_.dq[id]       = dq;
+                    state_.tau_est[id]  = t;
+                    // Raw per-motor returns, logged as-is for offline analysis.
+                    state_.tau_motor[id] = d.tau;                    // motor-side, unscaled
+                    state_.temp[id]      = static_cast<float>(d.temp);
+                    state_.merror[id]    = static_cast<float>(d.merror);
                 } catch (const std::exception& e) {
                     std::cerr << "[m" << id << "] serial: " << e.what() << "\n";
                 } catch (...) {
