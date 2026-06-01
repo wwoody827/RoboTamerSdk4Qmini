@@ -20,18 +20,14 @@ GO-M8010-6's reported torque is unusable for friction. **Position-based
 1. **Scaling.** `source/user/hal/hardware/motor_unitree.cpp:135` reports
    `tau_est = d.tau / ratio`. Joint-side torque is motor torque **× ratio**,
    so as reported `tau_est` is under-scaled by ~`ratio²` (≈40× for the
-   6.33-ratio joints, ≈360× for hip_roll at 18.99). Suspected HAL bug —
-   **left as-is** (it's the deploy torque convention; changing it unprompted
-   risks the control path).
+   6.33-ratio joints, ≈360× for hip_roll at 18.99).
 
-   > **PENDING FIX — verify before applying.** Marker at
-   > `source/user/hal/hardware/motor_unitree.cpp` (search `FIXME(tau_est`).
-   > Candidate: `t = d.tau * ratio` (instead of `/ ratio`). We now log the
-   > raw `tau_motor` (= `d.tau`) in every NPZ, so before changing the deploy
-   > torque convention: run a `--static` balance hold, compare `tau_motor`
-   > (×ratio) against the `kp·err` gravity torque per joint — if they match,
-   > apply the fix; then re-check the control path. Deferred until we have
-   > that real-data comparison.
+   > **CONFIRMED & FIXED (2026-05-31).** The static-balance log showed
+   > `tau_motor × ratio` ≈ `kp·err` (gravity torque) on every loaded joint,
+   > while old `tau_est = d.tau/ratio` was low by exactly `ratio²` — see
+   > `static_balance_2026_05_31.md`. `motor_unitree.cpp` now reports
+   > `tau_est = d.tau × ratio`. Safe: `tau_est` is telemetry-only (not in the
+   > obs or command path).
 2. **Resolution / noise.** Even accounting for scale, the current-derived
    estimate is coarse: hip_pitch_l driving the *whole leg* through 19° read
    `|tau_est|max = 0.12 N·m` (physically ~2 N·m to hold that pose). The
