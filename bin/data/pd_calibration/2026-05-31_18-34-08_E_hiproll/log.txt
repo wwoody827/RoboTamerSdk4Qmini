@@ -1,0 +1,5 @@
+[calib] run_id=2026-05-31_18-34-08_E_hiproll
+[calib] sdk_commit=3524a415126c544ed3404adf0e326a6741e4ef89
+[calib] tests=E tick_hz=66.6667 deploy_hz=66.6667 tick_hz_overridden=no quick=no plan_size=6
+[calib] safe_dq_max=8 rad/s ramp_in_s=3
+[calib] elapsed_s=47.0234 ok=6 abort=0

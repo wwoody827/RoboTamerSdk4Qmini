@@ -11,8 +11,16 @@ gravity over the small ±amp sweep). Needs ≥2 speeds to split b (slope) from
 f (intercept) — the default plan runs 0.2 / 0.5 / 1.0 rad/s.
 
 Unlike free-release (Test D) this needs NO gravity restoring and NO inertia,
-so it's the right method for the high-ratio hip_roll and the no-gravity
-hip_yaw / ankle joints.
+so in principle it's the right method for the high-ratio hip_roll and the
+no-gravity hip_yaw / ankle joints.
+
+!! HARDWARE CAVEAT (2026-05-31): on this robot the GO-M8010-6 `tau_est` is
+   unusable for friction — under-scaled (motor_unitree.cpp reports
+   d.tau/ratio; joint torque is ×ratio) AND too coarse/noisy, so the friction
+   signal sits at the noise floor (R²~0.5, implausibly tiny f). This script
+   is correct given a good torque sensor, but needs joint-torque feedback this
+   robot doesn't provide. Use Test D (position-based) instead. See
+   docs/calibration_notes/friction_findings_2026_05_31.md.
 
 Usage:
     python3 fit_friction.py path/to/run_dir/        # → friction.yaml
