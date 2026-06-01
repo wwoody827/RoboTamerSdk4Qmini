@@ -57,6 +57,23 @@ float trial_offset(const Trial& trial, double t) {
                            (std::pow(f1 / f0, t / T) - 1.0);
             return trial.amp * std::sin(phase);
         }
+        case TestKind::FreeRelease: {
+            // Displace to +amp via a half-cosine ramp, then hold there. The
+            // RELEASE (kp=kd=0) is applied in loop.cpp by phase, NOT here —
+            // q_target stays at amp through the decay window but has no effect
+            // once the gains are zero. At re-engage q_target returns to MGTO
+            // (offset 0) while the gains ramp back up. Phases (see loop.cpp):
+            //   0..1 settle | 1..3 displace | 3..3.5 hold | 3.5..7 decay | 7..8 reengage
+            const double settle = 1.0, ramp = 2.0, hold = 0.5, decay = 3.5;
+            if (t < settle) return 0.f;
+            if (t < settle + ramp) {
+                const double u = (t - settle) / ramp;
+                return trial.amp * 0.5f *
+                       static_cast<float>(1.0 - std::cos(M_PI * u));
+            }
+            if (t < settle + ramp + hold + decay) return trial.amp;
+            return 0.f;
+        }
     }
     return 0.f;
 }
@@ -95,7 +112,7 @@ std::vector<Trial> build_default_plan(
     const std::array<float, kNumJoints>& kd,
     const std::vector<float>& sine_freqs) {
     std::vector<Trial> out;
-    out.reserve(10 * (1 + sine_freqs.size() + 1));
+    out.reserve(10 * (1 + sine_freqs.size() + 1 + 1));  // A + B*freqs + C + D
 
     for (int j = 0; j < kNumJoints; ++j) {
         float mgto_j = mgto_pose.q_target[j];
@@ -151,6 +168,23 @@ std::vector<Trial> build_default_plan(
             t.pose_id = 0;
             t.label = fmt_label("C", kp_j, kd_j, "chirp");
             t.duration_s = 30.0;
+            out.push_back(t);
+        }
+
+        // Test D: free-release passive dynamics (viscous b + Coulomb f).
+        // Opt-in via --tests D; filtered out of the default A,B,C run.
+        {
+            float amp_d = safe_amp(0.15f, mgto_j, lo, hi);
+            Trial t;
+            t.joint = j;
+            t.test = TestKind::FreeRelease;
+            t.kp = kp_j;
+            t.kd = kd_j;
+            t.amp = amp_d;
+            t.freq_hz = -1.f;
+            t.pose_id = 0;
+            t.label = fmt_label("D", kp_j, kd_j, "release");
+            t.duration_s = 8.0;
             out.push_back(t);
         }
     }

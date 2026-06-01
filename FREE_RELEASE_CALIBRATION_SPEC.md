@@ -1,6 +1,13 @@
 # Free-Release Calibration Spec (Test D)
 
 Date: 2026-05-31
+Status: **Landed 2026-05-31.** Test D is in `pd_calibration_tool`
+(`--tests D`, opt-in; default run stays A,B,C) and the fitter is
+`tools/calibration_fit/fit_passive.py`. One deliberate deviation from §5:
+`g` (gravity stiffness) and `I` are taken from the **same run's Test A
+fit** (`g = kp_eff_A − kp_commanded`, `I = I_eff_A`) instead of MuJoCo
+`mj_inverse` — so the fitter needs **no MuJoCo** and the run must contain
+**both A and D** per joint (`--tests A,D`). Everything else matches.
 
 Spec for extending `pd_calibration_tool` with a passive-dynamics
 identification trial — "Test D / Free Release" — that measures per-joint

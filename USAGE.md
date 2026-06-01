@@ -392,8 +392,8 @@ Each `.npz` has 13 arrays + 3 scalars (16 keys); schema in
 
 ### Fitting
 
-Three offline scripts under `tools/calibration_fit/`, picked by which
-test you ran and how the robot was held:
+Offline scripts under `tools/calibration_fit/`, picked by which test you
+ran and how the robot was held:
 
 ```bash
 # 1. Quick-look FIRST — did the joint track, and was the base actually
@@ -403,12 +403,19 @@ python3 tools/calibration_fit/analyze_run.py <run_dir>/
 
 # 2a. STEP data (Test A): second-order fit → calibration.yaml.
 python3 tools/calibration_fit/fit_pd.py <run_dir>/ --mjcf sim_assets/q1_sim.mjcf
+#     (fit_pd_imu_comp.py is the Test-A variant with IMU base-motion comp.)
 
 # 2b. SINE data (Test B): sine-trace fit with IMU chassis-recoil
 #     compensation — use this when the robot hangs/stands freely (the
 #     base swings and contaminates q̈). Reports encoder-only vs
 #     chassis-compensated per joint; writes plots + calibration.yaml.
 python3 tools/calibration_fit/fit_pd_sine.py <run_dir>/
+
+# 2c. FREE-RELEASE data (Test D): passive viscous damping b + Coulomb
+#     friction f → passive_dynamics.yaml. Needs BOTH A and D in the run
+#     (takes I and gravity stiffness from the Test A fit). See
+#     FREE_RELEASE_CALIBRATION_SPEC.md.
+python3 tools/calibration_fit/fit_passive.py <run_dir>/
 ```
 
 All three take the run dir as the first arg and accept `--out` for the

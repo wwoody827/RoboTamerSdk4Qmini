@@ -289,6 +289,29 @@ std::vector<TrialResult> CalibrationLoop::run(const std::vector<Trial>& plan,
             float off = trial_offset(tr, t);
             cmd.q_target[tr.joint] = mgto_.q_target[tr.joint] + off;
 
+            // Test D (free release): zero the test joint's gains during the
+            // decay window so it swings passively, then cosine-ramp them back.
+            // All other joints keep their static hold gains. Other tests leave
+            // cmd.kp/kd[tr.joint] at the values set before the loop.
+            if (tr.test == TestKind::FreeRelease) {
+                const double settle = 1.0, ramp = 2.0, hold = 0.5,
+                             decay = 3.5, reengage = 1.0;
+                const double release_t  = settle + ramp + hold;   // 3.5 s
+                const double reengage_t = release_t + decay;       // 7.0 s
+                float k;
+                if (t < release_t) {
+                    k = 1.f;                                       // full cfg gains
+                } else if (t < reengage_t) {
+                    k = 0.f;                                       // released: zero torque
+                } else {
+                    const double u = std::min((t - reengage_t) / reengage, 1.0);
+                    k = static_cast<float>(0.5 * (1.0 - std::cos(M_PI * u)));
+                }
+                cmd.kp[tr.joint]     = tr.kp * k;
+                cmd.kd[tr.joint]     = tr.kd * k;
+                cmd.tau_ff[tr.joint] = 0.f;
+            }
+
             motor_->send(cmd);
             hal::MotorStateFrame st = motor_->read();
             hal::BaseStateFrame  base = imu_ ? imu_->read() : hal::BaseStateFrame{};

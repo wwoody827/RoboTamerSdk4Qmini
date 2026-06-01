@@ -20,7 +20,7 @@ constexpr int kNumJoints = 10;
 // Index 0 = HYL = hip_yaw_l, ..., index 9 = AR = ankle_r.
 extern const std::array<const char*, kNumJoints> kJointNames;
 
-enum class TestKind { Step = 'A', Sine = 'B', Chirp = 'C' };
+enum class TestKind { Step = 'A', Sine = 'B', Chirp = 'C', FreeRelease = 'D' };
 
 struct PoseRef {
     std::string label;                              // "MGTO", "crouch", "tall"
