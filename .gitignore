@@ -43,6 +43,10 @@ Makefile
 bin/general.txt
 bin/rl.txt
 
+# Flight recorder black-box logs (per-boot, robot-specific, megabytes each).
+logs/flight/
+**/logs/flight/
+
 # Python cache
 __pycache__/
 *.pyc

@@ -3,7 +3,10 @@
 #include <atomic>
 #include <memory>
 
+#include <chrono>
+
 #include "user/data_report.h"
+#include "user/flight_recorder.h"
 #include "user/hal/factory.h"
 #include "user/mode_switcher.h"
 #include "user/rl_controller.h"
@@ -32,6 +35,8 @@ public:
         int   sin_joint_idx = -2;                 // -2 = use config.yaml; 0..9 = single joint
         bool  zero_on_start = false;              // capture current pose as zero at boot
         std::string dynamic_zero_path = "dynamic_zero.yaml";  // persistence file
+        bool  enable_flight_log = true;           // black-box recorder (every boot)
+        std::string flight_log_dir = "logs/flight";  // one .bin+.meta.json per boot
     };
 
     explicit QminiApp(Options opts);
@@ -55,6 +60,9 @@ private:
     void control_tick();
     void mode_tick();
     void report_tick();
+    void record_flight(const hal::MotorStateFrame& raw_motor,
+                       const hal::BaseStateFrame& base,
+                       const hal::MotorCmdFrame& cmd_sent);
 
     Options opts_;
     ConfigParams cfg_;
@@ -67,6 +75,9 @@ private:
     std::unique_ptr<RLController> rl_;
     ModeSwitcher mode_switcher_;
     DataReporter reporter_;
+    FlightRecorder flight_;
+    std::chrono::steady_clock::time_point flight_t0_;
+    int flight_counter_ = 0;
 
     char current_mode_  = '1';
     char selected_mode_ = '1';

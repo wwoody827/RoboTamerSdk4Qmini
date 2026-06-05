@@ -80,6 +80,24 @@ QminiApp::QminiApp(Options opts)
         reporter_.init(true, true);
     }
 
+    // Black-box flight recorder — opens a fresh log every boot.
+    if (opts_.enable_flight_log) {
+        FlightRecorder::Meta meta;
+        static const char* kJN[10] = {
+            "hip_yaw_l", "hip_roll_l", "hip_pitch_l", "knee_l", "ankle_l",
+            "hip_yaw_r", "hip_roll_r", "hip_pitch_r", "knee_r", "ankle_r"};
+        for (int i = 0; i < 10; ++i) meta.joint_names.emplace_back(kJN[i]);
+        meta.dynamic_zero.assign(dynamic_zero_.begin(), dynamic_zero_.end());
+        meta.kp.assign(cfg_.kp.begin(), cfg_.kp.end());
+        meta.kd.assign(cfg_.kd.begin(), cfg_.kd.end());
+        meta.action_scale.assign(cfg_.action_scale.begin(), cfg_.action_scale.end());
+        meta.ref_joint.assign(cfg_.ref_joint_act.begin(), cfg_.ref_joint_act.end());
+        meta.control_dt = cfg_.control_dt;
+        meta.policy_path = opts_.use_real_onnx ? opts_.policy_path : "<identity>";
+        flight_.open(opts_.flight_log_dir, meta);
+        flight_t0_ = std::chrono::steady_clock::now();
+    }
+
     // Pull initial state so reset() has something real to anchor to.
     rl_->update_motor_state(motor_->read());
     rl_->update_base_state(imu_->read());
@@ -131,6 +149,7 @@ QminiApp::~QminiApp() {
     if (imu_)      imu_->stop();
     if (motor_)    motor_->stop();
     reporter_.close();
+    flight_.close();
 }
 
 void QminiApp::run() {
@@ -281,12 +300,15 @@ void QminiApp::control_tick() {
 
     // Apply dynamic zero offset to the measured motor state before the
     // controller sees it (subtract). The matching add-back happens at the
-    // outgoing cmd below.
-    hal::MotorStateFrame state = motor_->read();
+    // outgoing cmd below. Keep the RAW frame for the flight recorder (it holds
+    // tau_motor / temp / merror that the controller path drops).
+    const hal::MotorStateFrame raw_motor = motor_->read();
+    const hal::BaseStateFrame  base      = imu_->read();
+    hal::MotorStateFrame state = raw_motor;
     for (int i = 0; i < 10; ++i) state.q[i] -= dynamic_zero_[i];
 
     rl_->update_motor_state(state);
-    rl_->update_base_state(imu_->read());
+    rl_->update_base_state(base);
     rl_->update_joystick(joystick_->read());
 
     switch (current_mode_) {
@@ -322,6 +344,60 @@ void QminiApp::control_tick() {
     hal::MotorCmdFrame cmd = rl_->to_motor_cmd(current_mode_);
     for (int i = 0; i < 10; ++i) cmd.q_target[i] += dynamic_zero_[i];
     motor_->send(cmd);
+
+    if (flight_.is_open()) record_flight(raw_motor, base, cmd);
+}
+
+void QminiApp::record_flight(const hal::MotorStateFrame& raw,
+                             const hal::BaseStateFrame& base,
+                             const hal::MotorCmdFrame& cmd) {
+    FlightRecord r{};
+    r.t_mono = std::chrono::duration<double>(
+                   std::chrono::steady_clock::now() - flight_t0_).count();
+    r.counter    = flight_counter_++;
+    r.mode       = static_cast<int>(current_mode_);
+    r.rl_counter = rl_->counter_rl();
+    r.imu_valid  = base.valid ? 1 : 0;
+
+    const auto& obs = rl_->observation();        // 117 (valid in mode 3)
+    for (int i = 0; i < 117 && i < obs.size(); ++i) r.obs[i] = obs[i];
+    const auto& act = rl_->action_increment();   // 10 raw action
+    for (int i = 0; i < 10; ++i) r.raw_action[i] = act[i];
+
+    const auto& jp  = rl_->joint_pos();
+    const auto& jv  = rl_->joint_vel();
+    const auto& ja  = rl_->joint_act();
+    const auto& ref = rl_->ref_joint_act();
+    for (int i = 0; i < 10; ++i) {
+        r.cmd_q[i]        = cmd.q_target[i];
+        r.cmd_kp[i]       = cmd.kp[i];
+        r.cmd_kd[i]       = cmd.kd[i];
+        r.cmd_tau_ff[i]   = cmd.tau_ff[i];
+        r.mot_q[i]        = raw.q[i];
+        r.mot_dq[i]       = raw.dq[i];
+        r.mot_tau_est[i]  = raw.tau_est[i];
+        r.mot_tau_motor[i]= raw.tau_motor[i];
+        r.mot_temp[i]     = raw.temp[i];
+        r.mot_merror[i]   = static_cast<int>(raw.merror[i]);
+        r.ctrl_q[i]       = jp[i];
+        r.ctrl_dq[i]      = jv[i];
+        r.joint_act[i]    = ja[i];
+        r.ref_joint[i]    = ref[i];
+    }
+
+    const auto& q  = rl_->base_quat();
+    const auto& rp = rl_->base_rpy();
+    const auto& om = rl_->base_rpy_rate();
+    const auto& ac = rl_->base_acc();
+    const auto& cm = rl_->target_command();
+    for (int i = 0; i < 4; ++i) r.base_quat[i]  = q[i];
+    for (int i = 0; i < 3; ++i) {
+        r.base_rpy[i]   = rp[i];
+        r.base_omega[i] = om[i];
+        r.base_acc[i]   = ac[i];
+        r.command[i]    = cm[i];
+    }
+    flight_.log(r);
 }
 
 void QminiApp::report_tick() {

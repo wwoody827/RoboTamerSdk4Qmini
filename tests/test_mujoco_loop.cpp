@@ -30,6 +30,7 @@ int main() {
     QminiApp::Options opts;
     opts.use_real_onnx = false;
     opts.enable_logging = false;
+    opts.enable_flight_log = false;
     opts.start_threads = false;
     opts.input_from_keyboard = false;
 

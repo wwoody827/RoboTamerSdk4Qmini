@@ -24,6 +24,7 @@ set(USER_SOURCES
     source/user/obs_builder.cpp
     source/user/rl_controller.cpp
     source/user/data_report.cpp
+    source/user/flight_recorder.cpp
     source/user/qmini_app.cpp
     source/user/policy_identity.cpp
     source/user/leg_ik.cpp

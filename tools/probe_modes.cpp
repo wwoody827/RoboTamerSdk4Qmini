@@ -32,6 +32,7 @@ void probe_mode(char mode, double duration_s, float scale, const char* descripti
     QminiApp::Options opts;
     opts.use_real_onnx = false;
     opts.enable_logging = false;
+    opts.enable_flight_log = false;
     opts.start_threads = false;
     opts.enable_viewer = false;
     opts.input_from_keyboard = false;
