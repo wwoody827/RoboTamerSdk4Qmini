@@ -1,13 +1,12 @@
-// Pure-function test for the observation builder.
-//   - Asserts dimension (44)
-//   - Asserts every contributing slice maps to the right index
-//   - Asserts static_flag gating at the 0.15 threshold (both sides)
-//   - Asserts the ±3 clamp triggers
+// Pure-function tests for the mjlab v24 observation builder.
+//   - Asserts one frame is 39-dim and every term lands at its slot
+//   - Asserts projected_gravity_from_rpy(0,0) == [0,0,-1] and small-angle signs
+//   - Asserts stack_obs_per_term produces the per-term oldest->newest 117 layout
 
 #include <cassert>
 #include <cmath>
 #include <cstdio>
-#include <iostream>
+#include <vector>
 
 #include "user/obs_builder.h"
 
@@ -16,15 +15,13 @@ using namespace qmini;
 namespace {
 
 void zero(ObsInputs& in) {
-    in.target_command.setZero();
-    in.base_rpy.setZero();
-    in.base_rpy_rate.setZero();
+    in.base_ang_vel.setZero();
+    in.projected_gravity.setZero();
     in.joint_pos.setZero();
-    in.joint_vel.setZero();
-    in.joint_act.setZero();
     in.ref_joint_act.setZero();
-    in.pm_phase.setZero();
-    in.pm_f.setZero();
+    in.joint_vel.setZero();
+    in.last_action.setZero();
+    in.command.setZero();
 }
 
 #define EXPECT_NEAR(a, b, tol) do { \
@@ -38,106 +35,85 @@ void zero(ObsInputs& in) {
 }  // namespace
 
 int main() {
-    ObsParams p;  // defaults
-
-    // --- 1. zero input → almost-zero observation -----------------------
+    // --- 1. dim + zero input -------------------------------------------
     {
         ObsInputs in; zero(in);
-        in.pm_f.setConstant(0.5f);  // (0.5*0.3 - 1) * 0 = 0 (static_flag=0)
-        auto o = build_obs(in, p);
-        assert(o.size() == kObsPerStep);
+        auto o = build_obs(in);
+        assert(o.size() == kObsPerStep && kObsPerStep == 39);
         for (int i = 0; i < o.size(); ++i) EXPECT_NEAR(o(i), 0.f, 1e-6);
     }
 
-    // --- 2. command + flag gating at 0.15 -------------------------------
+    // --- 2. projected gravity convention -------------------------------
     {
-        ObsInputs in; zero(in);
-        in.target_command << 0.10f, 0.0f, 0.0f;  // norm=0.10 < 0.15 → static_flag=0
-        in.pm_phase << 0.f, 0.f;  // sin=0, cos=1
-        in.pm_f.setConstant(1.0f);
-        auto o = build_obs(in, p);
-        EXPECT_NEAR(o(0), 0.10f, 1e-6);  // vx
-        EXPECT_NEAR(o(38), 0.f, 1e-6);   // sin_L * 0 = 0
-        EXPECT_NEAR(o(40), 0.f, 1e-6);   // cos_L * 0 = 0
-        EXPECT_NEAR(o(42), 0.f, 1e-6);   // freq * 0 = 0
-    }
-    {
-        ObsInputs in; zero(in);
-        in.target_command << 0.16f, 0.0f, 0.0f;  // norm=0.16 ≥ 0.15 → flag=1
-        in.pm_phase << 0.f, 0.f;
-        in.pm_f.setConstant(1.0f);
-        auto o = build_obs(in, p);
-        EXPECT_NEAR(o(0), 0.16f, 1e-6);
-        EXPECT_NEAR(o(38), 0.f, 1e-6);   // sin(0)=0
-        EXPECT_NEAR(o(40), 1.f, 1e-6);   // cos(0)*1=1
-        EXPECT_NEAR(o(42), 1.f * 0.3f - 1.f, 1e-6);  // = -0.7
+        auto g = projected_gravity_from_rpy(0.f, 0.f);
+        EXPECT_NEAR(g(0), 0.f, 1e-6);
+        EXPECT_NEAR(g(1), 0.f, 1e-6);
+        EXPECT_NEAR(g(2), -1.f, 1e-6);          // upright
+        // pitch forward -> +x gravity component (sin(pitch))
+        auto gp = projected_gravity_from_rpy(0.f, 0.2f);
+        EXPECT_NEAR(gp(0), std::sin(0.2f), 1e-6);
+        // roll -> -sin(roll)*cos(pitch) on y
+        auto gr = projected_gravity_from_rpy(0.3f, 0.f);
+        EXPECT_NEAR(gr(1), -std::sin(0.3f), 1e-6);
+        EXPECT_NEAR(gr(2), -std::cos(0.3f), 1e-6);
+        // gravity is a unit vector
+        EXPECT_NEAR(gr.norm(), 1.f, 1e-6);
     }
 
-    // --- 3. exact-at-threshold counts as moving -------------------------
+    // --- 3. frame layout: each term at its slot ------------------------
     {
         ObsInputs in; zero(in);
-        in.target_command << 0.15f, 0.f, 0.f;
-        in.pm_phase << 0.f, 0.f;
-        in.pm_f.setConstant(0.5f);
-        auto o = build_obs(in, p);
-        EXPECT_NEAR(o(40), 1.f, 1e-6);   // cos_L * 1
+        in.base_ang_vel      << 0.1f, 0.2f, 0.3f;        // 0..2
+        in.projected_gravity << 0.0f, 0.0f, -1.0f;       // 3..5
+        in.joint_pos.setConstant(0.5f);
+        in.ref_joint_act.setConstant(0.2f);              // pos-ref = 0.3 at 6..15
+        in.joint_vel.setConstant(1.5f);                  // 16..25
+        in.last_action.setConstant(-0.4f);               // 26..35
+        in.command           << 0.6f, -0.7f, 0.8f;       // 36..38
+
+        auto o = build_obs(in);
+        EXPECT_NEAR(o(0), 0.1f, 1e-6);
+        EXPECT_NEAR(o(2), 0.3f, 1e-6);
+        EXPECT_NEAR(o(3), 0.0f, 1e-6);
+        EXPECT_NEAR(o(5), -1.0f, 1e-6);
+        EXPECT_NEAR(o(6), 0.3f, 1e-6);     // joint_pos - ref
+        EXPECT_NEAR(o(15), 0.3f, 1e-6);
+        EXPECT_NEAR(o(16), 1.5f, 1e-6);    // joint_vel (unscaled)
+        EXPECT_NEAR(o(25), 1.5f, 1e-6);
+        EXPECT_NEAR(o(26), -0.4f, 1e-6);   // last_action
+        EXPECT_NEAR(o(35), -0.4f, 1e-6);
+        EXPECT_NEAR(o(36), 0.6f, 1e-6);    // command
+        EXPECT_NEAR(o(37), -0.7f, 1e-6);
+        EXPECT_NEAR(o(38), 0.8f, 1e-6);
     }
 
-    // --- 4. obs layout: each segment lands at its slot ------------------
+    // --- 4. per-term oldest->newest stacking ---------------------------
     {
-        ObsInputs in; zero(in);
-        in.target_command << 0.5f, -0.2f, 1.0f;
-        in.base_rpy        << 0.1f, -0.2f, 0.3f;
-        in.base_rpy_rate   << 0.4f, -0.5f, 0.6f;
-        in.joint_pos.setConstant(0.1f);
-        in.joint_vel.setConstant(2.0f);
-        in.joint_act.setConstant(0.2f);
-        in.ref_joint_act.setConstant(0.05f);
-        in.pm_phase  << static_cast<float>(M_PI / 2), 0.f;
-        in.pm_f      << 2.0f, 3.0f;
+        // Build 3 distinguishable frames: frame f has every element == f.
+        std::vector<Eigen::Matrix<float, kObsPerStep, 1>> frames(3);
+        for (int f = 0; f < 3; ++f)
+            frames[f] = Eigen::Matrix<float, kObsPerStep, 1>::Constant(
+                static_cast<float>(f));
 
-        auto o = build_obs(in, p);
-        // command 0..2
-        EXPECT_NEAR(o(0), 0.5f, 1e-6);
-        EXPECT_NEAR(o(1), -0.2f, 1e-6);
-        EXPECT_NEAR(o(2), 1.0f, 1e-6);
-        // rpy[0..1] at 3..4 (only roll, pitch — yaw is excluded)
-        EXPECT_NEAR(o(3), 0.1f, 1e-6);
-        EXPECT_NEAR(o(4), -0.2f, 1e-6);
-        // rpy_rate * 0.5 at 5..7
-        EXPECT_NEAR(o(5),  0.4f * 0.5f, 1e-6);
-        EXPECT_NEAR(o(6), -0.5f * 0.5f, 1e-6);
-        EXPECT_NEAR(o(7),  0.6f * 0.5f, 1e-6);
-        // joint_pos - ref at 8..17
-        EXPECT_NEAR(o(8),  0.1f - 0.05f, 1e-6);
-        // joint_vel * 0.1 at 18..27
-        EXPECT_NEAR(o(18), 2.0f * 0.1f, 1e-6);
-        // joint_act - joint_pos at 28..37
-        EXPECT_NEAR(o(28), 0.2f - 0.1f, 1e-6);
-        // phase_sin_cos at 38..41 (moving → flag=1)
-        EXPECT_NEAR(o(38), std::sin(static_cast<float>(M_PI / 2)), 1e-5);  // sin(pi/2)=1
-        EXPECT_NEAR(o(39), std::sin(0.f),                          1e-6);
-        EXPECT_NEAR(o(40), std::cos(static_cast<float>(M_PI / 2)), 1e-5);
-        EXPECT_NEAR(o(41), std::cos(0.f),                          1e-6);
-        // freq term at 42..43: (f*0.3 - 1) * flag
-        EXPECT_NEAR(o(42), 2.0f * 0.3f - 1.f, 1e-6);
-        EXPECT_NEAR(o(43), 3.0f * 0.3f - 1.f, 1e-6);
-    }
+        auto flat = stack_obs_per_term(frames);
+        assert(flat.size() == kObsTotal && kObsTotal == 117);
 
-    // --- 5. clamp at ±3 -------------------------------------------------
-    {
-        ObsInputs in; zero(in);
-        in.joint_vel.setConstant(100.f);  // *0.1=10 → clamped to 3
-        in.target_command << 0.f, 0.f, 0.f;
-        auto o = build_obs(in, p);
-        for (int i = 18; i < 28; ++i) EXPECT_NEAR(o(i), 3.f, 1e-6);
-    }
-    {
-        ObsInputs in; zero(in);
-        in.joint_pos.setConstant(-100.f);
-        in.ref_joint_act.setConstant(0.f);
-        auto o = build_obs(in, p);
-        for (int i = 8; i < 18; ++i) EXPECT_NEAR(o(i), -3.f, 1e-6);
+        // Layout = for each term, 3 frames oldest->newest. With frame value==f,
+        // the flattened vector must be blocks of [0,0,0,...(term dim),1,1,1,2,2,2]
+        // i.e. within each per-term*frame block the value equals the frame idx.
+        int w = 0;
+        for (int t = 0; t < kObsNumTerms; ++t) {
+            const int d = kObsTermDims[t];
+            for (int f = 0; f < 3; ++f)
+                for (int k = 0; k < d; ++k)
+                    EXPECT_NEAR(flat[w++], static_cast<float>(f), 1e-6);
+        }
+        assert(w == kObsTotal);
+
+        // Spot-check the documented head: ang_vel(t-2,t-1,t) = first 9 entries
+        // = [0,0,0, 1,1,1, 2,2,2] (term dim 3, 3 frames).
+        const float head[9] = {0,0,0, 1,1,1, 2,2,2};
+        for (int i = 0; i < 9; ++i) EXPECT_NEAR(flat[i], head[i], 1e-6);
     }
 
     std::printf("test_obs_builder: PASS\n");

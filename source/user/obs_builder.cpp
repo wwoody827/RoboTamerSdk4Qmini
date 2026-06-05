@@ -4,34 +4,41 @@
 
 namespace qmini {
 
-Eigen::Matrix<float, kObsPerStep, 1> build_obs(
-    const ObsInputs& in, const ObsParams& p) {
+Vec3<float> projected_gravity_from_rpy(float roll, float pitch) {
+    const float cp = std::cos(pitch), sp = std::sin(pitch);
+    const float cr = std::cos(roll),  sr = std::sin(roll);
+    Vec3<float> g;
+    g << sp, -sr * cp, -cr * cp;   // upright (0,0) -> [0, 0, -1]
+    return g;
+}
+
+Eigen::Matrix<float, kObsPerStep, 1> build_obs(const ObsInputs& in) {
     Eigen::Matrix<float, kObsPerStep, 1> obs;
-
-    const float static_flag = compute_static_flag(in.target_command,
-                                                  p.static_threshold);
-
-    Vec4<float> phase_sin_cos;
-    phase_sin_cos(0) = std::sin(in.pm_phase[0]);
-    phase_sin_cos(1) = std::sin(in.pm_phase[1]);
-    phase_sin_cos(2) = std::cos(in.pm_phase[0]);
-    phase_sin_cos(3) = std::cos(in.pm_phase[1]);
-
-    const Vec10<float> joint_pos_err = in.joint_act - in.joint_pos;
-    const Vec10<float> joint_pos_devref = in.joint_pos - in.ref_joint_act;
-    const Vec2<float> freq_term = (in.pm_f * p.freq_scale).array() - 1.0f;
-
-    obs << in.target_command,
-           in.base_rpy.segment(0, 2),
-           in.base_rpy_rate * p.rpy_rate_scale,
-           joint_pos_devref,
-           in.joint_vel * p.joint_vel_scale,
-           joint_pos_err,
-           phase_sin_cos * static_flag,
-           freq_term * static_flag;
-
-    obs = obs.cwiseMax(-p.clamp_abs).cwiseMin(p.clamp_abs);
+    obs << in.base_ang_vel,
+           in.projected_gravity,
+           (in.joint_pos - in.ref_joint_act),
+           in.joint_vel,
+           in.last_action,
+           in.command;
     return obs;
+}
+
+Eigen::VectorXf stack_obs_per_term(
+    const std::vector<Eigen::Matrix<float, kObsPerStep, 1>>& frames) {
+    const int stack = static_cast<int>(frames.size());
+    Eigen::VectorXf out(kObsPerStep * stack);
+    int w = 0;
+    int term_start = 0;
+    for (int t = 0; t < kObsNumTerms; ++t) {
+        const int d = kObsTermDims[t];
+        for (int f = 0; f < stack; ++f) {            // oldest -> newest
+            for (int k = 0; k < d; ++k) {
+                out[w++] = frames[f][term_start + k];
+            }
+        }
+        term_start += d;
+    }
+    return out;
 }
 
 }  // namespace qmini

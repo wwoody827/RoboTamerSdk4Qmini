@@ -5,14 +5,18 @@
 #             joint: HYL   HRL    HPL   KL    AL     HYR    HRR    HPR   KR    AR
 startq: [0.802984, 0.160921, 0.150116, 0.546649, 1.039860, 0.551581, 0.120269, 0.656923, 0.068339, 0.064190]
 #obs and act spaces
-num_actions: 12
-num_observations: 44
+# mjlab v24 contract: 39-dim/frame x 3 stack = 117. Action = 10 absolute
+# joint positions: joint_target = raw_action*action_scale + ref_joint_act.
+num_actions: 10
+num_observations: 39
 num_stacks: 3
 
 control_dt: 0.015
-#joint position increments limits
-act_inc_high: [ 3.5,  15. ] # f*2+(leg*5)*2+torso*1+(arm*4)*2
-act_inc_low: [ 0.5, -15. ]
+
+# Per-joint absolute-action scale (HYL HRL HPL KL AL  HYR HRR HPR KR AR).
+# Source: models/qmini_walk_v24/policy_manifest.yaml::action.scale.
+action_scale: [ 0.09091, 0.14286, 0.06667, 0.11111, 0.16667,
+                0.09091, 0.14286, 0.06667, 0.11111, 0.16667 ]
 
 #target command ranges
 vx_cmd_range: [ -0.3, 0.5 ] #m/s

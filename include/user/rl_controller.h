@@ -56,6 +56,8 @@ public:
     // Tunables / inputs visible to outer scope.
     void set_task_mode(int m) { task_mode_ = m; }
     int  task_mode() const     { return task_mode_; }
+    static constexpr int kObsDim   = kObsPerStep;   // 39 per frame
+    static constexpr int kActionDim = kNumActions;  // 10
     // Scale applied to kp / kd when the controller emits a "stand" frame
     // (mode '2'). 1.0 = use config.yaml values as-is. >1 useful when
     // observing in sim where the deployed-policy-sized gains can't drive
@@ -80,12 +82,12 @@ public:
     const Vec3<float>&  base_acc()        const { return base_acc_; }
     const Vec4<float>&  base_quat()       const { return base_quat_; }
     const Vec3<float>&  target_command()  const { return target_command_; }
-    const Vec2<float>&  pm_f()            const { return pm_f_; }
-    const Vec2<float>&  pm_phase()        const { return pm_phase_; }
-    float               static_flag()     const { return static_flag_; }
     int                 counter_rl()      const { return counter_rl_; }
     const Eigen::VectorXf& observation()      const { return observation_; }
-    const Eigen::VectorXf& action_increment() const { return action_increment_; }
+    // Last RAW policy output (pre-scale), 10-dim. Kept under the historical
+    // name action_increment() so telemetry consumers don't break; the value
+    // is now an absolute-action raw, not an increment.
+    const Vec10<float>& action_increment()    const { return last_raw_action_; }
 
     // Math helpers (kept as static for testability).
     static float smallest_signed_angle_between(float alpha, float beta);
@@ -93,39 +95,37 @@ public:
 
 private:
     void joystick_command_process(const hal::JoystickFrame& js);
-    void compute_pm_phase(const Vec2<float>& f);
     Eigen::VectorXf build_stacked_obs();
-    Eigen::VectorXf transform(const Eigen::VectorXf& net_out);
-    void joint_increment_control(const Eigen::VectorXf& increment);
+    void apply_raw_action(const Eigen::VectorXf& raw);
     void smooth_joint_action(float ratio, const Vec10<float>& end_joint_act);
 
     ConfigParams cfg_;
     std::unique_ptr<IPolicy> policy_;
-    ObsParams obs_params_;
 
     mutable std::mutex state_mutex_;
     int task_mode_ = 0;
     int counter_rl_ = 0;
     bool is_first_run_ = true;
-    float rl_time_step_ = 0.01f;
     float record_yaw_ = 0.f;
-    float static_flag_ = 0.f;
+    float static_flag_ = 0.f;   // |cmd| >= threshold; yaw-hold gating only
     float stand_kp_scale_ = 1.f;
     float stand_kd_scale_ = 1.f;
 
     Vec10<float> joint_pos_, joint_vel_, joint_tau_, joint_acc_;
     Vec10<float> joint_act_, init_joint_act_;
-    Vec3<float>  base_rpy_, base_rpy_rate_, base_acc_;
+    Vec3<float>  base_rpy_, base_rpy_rate_, base_acc_;  // rpy_rate_ holds gyro omega
     Vec4<float>  base_quat_;
     Vec3<float>  target_command_;
-    Vec2<float>  pm_f_, pm_phase_;
 
-    Vec10<float> ref_joint_act_, act_pos_low_, act_pos_high_;
+    // Absolute-action mapping: joint_target = raw * scale + offset.
+    Vec10<float> ref_joint_act_;      // == action offset (default pose)
+    Vec10<float> action_scale_;
+    Vec10<float> last_raw_action_;    // fed back into next obs frame
+    Vec10<float> act_pos_low_, act_pos_high_;
     Vec10<float> kp_, kd_, kp_soft_, kd_soft_;
 
-    Eigen::VectorXf action_increment_;
-    Eigen::VectorXf observation_;
-    std::vector<Eigen::VectorXf> obs_stack_;
+    Eigen::VectorXf observation_;                                   // 117 flat
+    std::vector<Eigen::Matrix<float, kObsPerStep, 1>> obs_stack_;   // history
 
     hal::JoystickFrame last_joystick_{};
 };

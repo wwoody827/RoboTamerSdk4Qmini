@@ -34,8 +34,9 @@ public:
         vx_cmd_range = params["vx_cmd_range"].as < std::vector < float > > ();
         yr_cmd_range = params["yr_cmd_range"].as < std::vector < float > > ();
 
-        act_inc_high = params["act_inc_high"].as < std::vector < float > > ();
-        act_inc_low = params["act_inc_low"].as < std::vector < float > > ();
+        // Per-joint absolute-action scale: joint_target = raw*scale + ref_act.
+        // Source: models/qmini_walk_v24/policy_manifest.yaml::action.scale.
+        action_scale = params["action_scale"].as < std::vector < float > > ();
 
         act_pos_high = params["act_pos_high"].as < std::vector < float > > ();
         act_pos_low = params["act_pos_low"].as < std::vector < float > > ();
@@ -67,8 +68,8 @@ public:
     std::vector<float> vx_cmd_range = {0.};
     std::vector<float> yr_cmd_range = {0.};
 
-    std::vector<float> act_inc_high = {0.};
-    std::vector<float> act_inc_low = {0.};
+    // Per-joint absolute-action scale (10 entries).
+    std::vector<float> action_scale = {1.};
 
     std::vector<float> act_pos_high = {0.};
     std::vector<float> act_pos_low = {0.};

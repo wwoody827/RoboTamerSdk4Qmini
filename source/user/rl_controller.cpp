@@ -14,11 +14,19 @@ RLController::RLController(ConfigParams cfg, std::unique_ptr<IPolicy> policy)
     }
     if (policy_->input_dim() != kObsPerStep) {
         throw std::runtime_error(
-            "RLController: policy input_dim must equal kObsPerStep (44)");
+            "RLController: policy input_dim must equal kObsPerStep (39)");
+    }
+    if (policy_->output_dim() != kNumActions) {
+        throw std::runtime_error(
+            "RLController: policy output_dim must equal kNumActions (10)");
     }
     if (cfg_.num_observations != kObsPerStep) {
         throw std::runtime_error(
-            "RLController: config num_observations must equal 44");
+            "RLController: config num_observations must equal 39");
+    }
+    if (cfg_.num_actions != kNumActions) {
+        throw std::runtime_error(
+            "RLController: config num_actions must equal 10");
     }
 }
 
@@ -32,13 +40,13 @@ void RLController::init() {
     base_rpy_.setZero();
     base_rpy_rate_.setZero();
     target_command_.setZero();
-    pm_f_.setConstant(0.5f);
-    pm_phase_.setZero();
+    last_raw_action_.setZero();
 
     for (int i = 0; i < kNumActuatedJoints; ++i) {
         act_pos_low_[i]  = cfg_.act_pos_low.at(i);
         act_pos_high_[i] = cfg_.act_pos_high.at(i);
         ref_joint_act_[i] = cfg_.ref_joint_act.at(i);
+        action_scale_[i] = cfg_.action_scale.at(i);
         kp_[i]      = cfg_.kp.at(i);
         kd_[i]      = cfg_.kd.at(i);
         kp_soft_[i] = cfg_.kp_soft.at(i);
@@ -47,16 +55,14 @@ void RLController::init() {
     joint_act_ = ref_joint_act_;
 
     const int stack = policy_->stack_dim();
-    action_increment_ = Eigen::VectorXf::Zero(policy_->output_dim());
     observation_ = Eigen::VectorXf::Zero(kObsPerStep * stack);
-    obs_stack_.assign(stack, Eigen::VectorXf::Zero(kObsPerStep));
+    obs_stack_.assign(stack, Eigen::Matrix<float, kObsPerStep, 1>::Zero());
 }
 
 void RLController::reset(bool reset_pose_to_measured) {
     std::lock_guard<std::mutex> g(state_mutex_);
-    pm_f_.setConstant(0.5f);
-    pm_phase_.setZero();
     target_command_.setZero();
+    last_raw_action_.setZero();
     is_first_run_ = true;
     counter_rl_ = 0;
     if (reset_pose_to_measured) {
@@ -81,18 +87,18 @@ void RLController::update_motor_state(const hal::MotorStateFrame& s) {
 
 void RLController::update_base_state(const hal::BaseStateFrame& s) {
     if (!s.valid) return;
-    // Sign flip on roll/yaw + accel/omega X/Z to match the IMU mount frame
-    // expected by training (preserves the pre-HAL behavior of
-    // convert_dds_state2rl_state()).
-    const float trans_axis[3] = {-1.f, 1.f, -1.f};
+    // HAL backends now emit the canonical robot/training body frame:
+    //   - sim (MuJoCo world.cpp): already in body frame
+    //   - real (imu_serial.cpp): the IMU mount transform is folded in there
+    // so the controller applies NO further sign flips. base_rpy_rate_ holds
+    // the body-frame gyro omega; base_acc_ is telemetry only (the policy uses
+    // projected_gravity derived from roll/pitch, not acc).
     std::lock_guard<std::mutex> g(state_mutex_);
     for (int i = 0; i < 3; ++i) {
         base_rpy_[i] = exp_filter(base_rpy_[i],
-            std::fmod(s.rpy[i] * trans_axis[i], 2 * M_PI), 0.2f);
-        base_rpy_rate_[i] = exp_filter(base_rpy_rate_[i],
-            s.omega[i] * trans_axis[i], 0.1f);
-        base_acc_[i] = exp_filter(base_acc_[i],
-            s.acc[i] * trans_axis[i], 0.1f);
+            std::fmod(s.rpy[i], 2 * M_PI), 0.2f);
+        base_rpy_rate_[i] = exp_filter(base_rpy_rate_[i], s.omega[i], 0.1f);
+        base_acc_[i] = exp_filter(base_acc_[i], s.acc[i], 0.1f);
     }
     for (int i = 0; i < 4; ++i) base_quat_[i] = s.quat[i];
 }
@@ -102,6 +108,11 @@ void RLController::update_joystick(const hal::JoystickFrame& js) {
 }
 
 void RLController::joystick_command_process(const hal::JoystickFrame& js) {
+    // Yaw-hold gating: only hold heading while the robot is meant to be
+    // moving (matches the old static-threshold behavior).
+    static constexpr float kStaticThreshold = 0.15f;
+    static_flag_ = target_command_.norm() >= kStaticThreshold ? 1.f : 0.f;
+
     float vx_cmd = 0, vy_cmd = 0, yr_cmd = 0;
     const float yr_max = cfg_.yr_cmd_range.at(1);
     const float vx_min = cfg_.vx_cmd_range.at(0);
@@ -131,74 +142,49 @@ Eigen::VectorXf RLController::build_stacked_obs() {
     {
         std::lock_guard<std::mutex> g(state_mutex_);
         joystick_command_process(last_joystick_);
-        static_flag_ = compute_static_flag(target_command_,
-                                           obs_params_.static_threshold);
-        in.target_command = target_command_;
-        in.base_rpy       = base_rpy_;
-        in.base_rpy_rate  = base_rpy_rate_;
+        in.base_ang_vel      = base_rpy_rate_;   // body-frame gyro
+        in.projected_gravity =
+            projected_gravity_from_rpy(base_rpy_[0], base_rpy_[1]);
         in.joint_pos      = joint_pos_;
-        in.joint_vel      = joint_vel_;
-        in.joint_act      = joint_act_;
         in.ref_joint_act  = ref_joint_act_;
-        in.pm_phase       = pm_phase_;
-        in.pm_f           = pm_f_;
+        in.joint_vel      = joint_vel_;
+        in.last_action    = last_raw_action_;
+        in.command        = target_command_;
     }
 
-    Eigen::Matrix<float, kObsPerStep, 1> obs = build_obs(in, obs_params_);
+    Eigen::Matrix<float, kObsPerStep, 1> frame = build_obs(in);
 
     const int stack = policy_->stack_dim();
     if (is_first_run_) {
-        for (int i = 0; i < stack; ++i) obs_stack_[i] = obs;
+        obs_stack_.assign(stack, frame);   // pre-fill history with first frame
         is_first_run_ = false;
     } else {
         obs_stack_.erase(obs_stack_.begin());
-        obs_stack_.push_back(obs);
+        obs_stack_.push_back(frame);
     }
-    for (int i = 0; i < stack; ++i) {
-        for (int j = 0; j < kObsPerStep; ++j) {
-            observation_[kObsPerStep * i + j] = obs_stack_[i][j];
-        }
-    }
+    observation_ = stack_obs_per_term(obs_stack_);
     return observation_;
 }
 
-Eigen::VectorXf RLController::transform(const Eigen::VectorXf& net_out) {
-    Eigen::VectorXf inc(policy_->output_dim());
-    const auto unit = (net_out.array() + 1.f) / 2.f;
-    for (int i = 0; i < policy_->output_dim(); ++i) {
-        int idx;
-        if (i < kNumLegs) idx = 0;
-        else if (i < kNumLegs + kNumActuatedJoints + 1) idx = 1;
-        else idx = 2;
-        const float lo = cfg_.act_inc_low[idx];
-        const float hi = cfg_.act_inc_high[idx];
-        inc(i) = unit(i) * (hi - lo) + lo;
-    }
-    return inc;
-}
-
-void RLController::joint_increment_control(const Eigen::VectorXf& inc) {
-    pm_f_ = inc.segment(0, kNumLegs);
-    compute_pm_phase(pm_f_);
+void RLController::apply_raw_action(const Eigen::VectorXf& raw) {
+    // Absolute joint-position action: target = raw * scale + offset.
+    // Offset is the default/ref pose; raw is fed back into the next obs frame
+    // BEFORE scaling (matches training's 'actions' term).
     std::lock_guard<std::mutex> g(state_mutex_);
-    joint_act_.segment(0, kNumActuatedJoints) +=
-        inc.segment(kNumLegs, kNumActuatedJoints) * rl_time_step_;
-    joint_act_ = joint_act_.cwiseMax(act_pos_low_).cwiseMin(act_pos_high_);
-}
-
-void RLController::compute_pm_phase(const Vec2<float>& f) {
-    for (int leg = 0; leg < kNumLegs; ++leg) {
-        pm_phase_[leg] += 2.f * static_cast<float>(M_PI) * f[leg] * rl_time_step_;
-        pm_phase_[leg] = std::fmod(pm_phase_[leg], 2 * static_cast<float>(M_PI));
+    for (int i = 0; i < kNumActuatedJoints; ++i) {
+        last_raw_action_[i] = raw[i];
+        joint_act_[i] = raw[i] * action_scale_[i] + ref_joint_act_[i];
     }
+    // Training applies no clip, but we clamp to the configured joint range as
+    // a hardware safety net (a healthy policy stays well inside it).
+    joint_act_ = joint_act_.cwiseMax(act_pos_low_).cwiseMin(act_pos_high_);
 }
 
 void RLController::rl_control() {
     counter_rl_++;
     Eigen::VectorXf obs = build_stacked_obs();
-    Eigen::VectorXf net = policy_->infer(obs);
-    action_increment_ = transform(net);
-    joint_increment_control(action_increment_);
+    Eigen::VectorXf raw = policy_->infer(obs);
+    apply_raw_action(raw);
 }
 
 void RLController::smooth_joint_action(float ratio,

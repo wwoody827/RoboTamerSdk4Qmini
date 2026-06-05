@@ -1,6 +1,7 @@
 #include "user/policy.h"
 
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "onnx/onnxruntime_cxx_api.h"
@@ -17,6 +18,12 @@ public:
         session_ = std::make_unique<Ort::Session>(env_, path.c_str(), opts);
         flat_size_ = static_cast<size_t>(in) * static_cast<size_t>(stack);
         input_shape_ = {1, static_cast<int64_t>(flat_size_)};
+        // Query the graph's actual I/O tensor names instead of hard-coding
+        // them. The mjlab v24 export uses "obs"/"action"; older Isaac exports
+        // used "input"/"output". Reading them keeps us export-agnostic.
+        Ort::AllocatorWithDefaultOptions alloc;
+        in_name_  = session_->GetInputNameAllocated(0, alloc).get();
+        out_name_ = session_->GetOutputNameAllocated(0, alloc).get();
     }
     int input_dim()  const override { return input_dim_; }
     int output_dim() const override { return output_dim_; }
@@ -32,18 +39,16 @@ public:
         auto in_tensor = Ort::Value::CreateTensor<float>(
             mem, buf.data(), buf.size(),
             input_shape_.data(), input_shape_.size());
-        const char* in_names[]  = {"input"};
-        const char* out_names[] = {"output"};
+        const char* in_names[]  = {in_name_.c_str()};
+        const char* out_names[] = {out_name_.c_str()};
         auto out = session_->Run(Ort::RunOptions{nullptr}, in_names,
                                  &in_tensor, 1, out_names, 1);
         float* p = out[0].GetTensorMutableData<float>();
+        // No clamping: the v24 action is a RAW absolute-position action that
+        // the controller scales and offsets. Clamping here would distort it
+        // (and the joint range clamp lives downstream in apply_raw_action).
         Eigen::VectorXf r(output_dim_);
-        for (int i = 0; i < output_dim_; ++i) {
-            float v = p[i];
-            if (v >  1.f) v =  1.f;
-            if (v < -1.f) v = -1.f;
-            r[i] = v;
-        }
+        for (int i = 0; i < output_dim_; ++i) r[i] = p[i];
         return r;
     }
 private:
@@ -52,6 +57,7 @@ private:
     std::vector<int64_t> input_shape_;
     Ort::Env env_;
     std::unique_ptr<Ort::Session> session_;
+    std::string in_name_, out_name_;
 };
 
 }  // namespace
