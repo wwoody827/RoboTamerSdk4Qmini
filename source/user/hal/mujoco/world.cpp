@@ -142,10 +142,14 @@ BaseStateFrame World::read_base_state() {
     // qpos layout for a free joint: [x, y, z, qw, qx, qy, qz]
     const double* qp = data_->qpos + free_joint_qpos_addr_;
     const double  qw = qp[3], qx = qp[4], qy = qp[5], qz = qp[6];
-    // qvel layout for a free joint: [vx, vy, vz, wx, wy, wz] in WORLD frame.
-    // The IMU expects angular velocity in BASE frame, so we rotate.
+    // qvel layout for a free joint: [vx, vy, vz, wx, wy, wz]. MuJoCo stores
+    // the free-joint ANGULAR velocity in the BODY-LOCAL frame already (verified:
+    // mj_objectVelocity(flg_local=1) == qvel[3:6]). That is exactly what a gyro
+    // measures and what the policy's base_ang_vel obs term expects, so we use it
+    // directly — NO rotation. (The previous code applied R^T here, which double-
+    // rotated and made the sim IMU inconsistent with the real gyro.)
     const double* qv = data_->qvel + free_joint_qvel_addr_;
-    const double  wx_w = qv[3], wy_w = qv[4], wz_w = qv[5];
+    const double  wx_b = qv[3], wy_b = qv[4], wz_b = qv[5];
 
     // Quaternion → RPY (mujoco quat is wxyz).
     const double sinr = 2.0 * (qw * qx + qy * qz);
@@ -159,7 +163,8 @@ BaseStateFrame World::read_base_state() {
     const double cosy = 1.0 - 2.0 * (qy * qy + qz * qz);
     const double yaw  = std::atan2(siny, cosy);
 
-    // Rotate world angular velocity into base frame: w_b = R^T * w_w.
+    // R^T helper (rotate a WORLD vector into the base frame). Used below to
+    // express gravity in the base frame for the acc telemetry field.
     // R from quaternion (wxyz). Inline 3x3 to avoid pulling Eigen in here.
     auto rotate_inv = [&](double x, double y, double z,
                           double& bx, double& by, double& bz) {
@@ -183,9 +188,6 @@ BaseStateFrame World::read_base_state() {
         by = Rt10 * x + Rt11 * y + Rt12 * z;
         bz = Rt20 * x + Rt21 * y + Rt22 * z;
     };
-    double wx_b, wy_b, wz_b;
-    rotate_inv(wx_w, wy_w, wz_w, wx_b, wy_b, wz_b);
-
     // Base linear acc in world frame; for now just publish gravity in base
     // frame as a reasonable approximation (matches an IMU at rest).
     double ax_b, ay_b, az_b;
